@@ -1,0 +1,264 @@
+import { LogEntry } from '../types';
+import { SigNozConfig } from '../types';
+import axios from 'axios';
+
+export class SigNozExporter {
+  private config: SigNozConfig;
+
+  constructor(config: SigNozConfig) {
+    this.config = config;
+  }
+
+  private parseDurationMs(raw: any): number | undefined {
+    if (raw === undefined || raw === null) return undefined;
+    if (typeof raw === 'number' && isFinite(raw)) return raw; // already ms
+    if (typeof raw !== 'string') return Number(raw);
+
+    const s = raw.trim().toLowerCase();
+    if (s.endsWith('ms')) return Number(s.slice(0, -2));
+    if (s.endsWith('s'))  return Number(s.slice(0, -1)) * 1000;
+    if (s.endsWith('us')) return Math.floor(Number(s.slice(0, -2)) / 1000); // micro → ms
+    if (!isNaN(Number(s))) return Number(s); // assume ms
+    return undefined;
+  }
+
+  async exportLog(logEntry: LogEntry): Promise<void> {
+
+    console.log('exportLog');
+    console.log(JSON.stringify(logEntry, null, 2));
+    
+    try {
+      const timestampNs = String(logEntry.timestamp.getTime() * 1_000_000); // epoch ns (UTC-based)
+      const durationMs: number | undefined =
+        this.parseDurationMs((logEntry as any).durationMs ?? (logEntry as any)?.performance?.duration);
+
+      const traceId: string | undefined = (logEntry as any).traceId || (logEntry as any).trace_id || undefined;
+      const spanId: string  | undefined = (logEntry as any).spanId  || (logEntry as any).span_id  || undefined;
+      const traceFlags: number | undefined = (logEntry as any).traceFlags ?? (logEntry as any).trace_flags ?? undefined;
+
+      const payload = {
+        resourceLogs: [{
+          resource: {
+            attributes: [
+              { key: "service.name",            value: { stringValue: this.config.serviceName } },
+              { key: "service.version",         value: { stringValue: this.config.serviceVersion || "1.0.0" } },
+              { key: "deployment.environment",  value: { stringValue: this.config.environment || "production" } },
+            ]
+          },
+          scopeLogs: [{
+            scope: { name: "logger", version: "1.0.0" },
+            logRecords: [{
+              timeUnixNano: timestampNs,
+              severityText: logEntry.level.toUpperCase(),
+              severityNumber: this.getSeverityNumber(logEntry.level),
+              body: this.toAnyValue(this.buildBodyObject(logEntry, durationMs)),
+              attributes: this.buildAttributes(logEntry, durationMs),
+              ...(traceId ? { traceId } : {}),
+              ...(spanId  ? { spanId }  : {}),
+              ...(typeof traceFlags === 'number' ? { traceFlags } : {}),
+            }]
+          }]
+        }]
+      };
+
+      // Enviar para SigNoz
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+      if (this.config.apiKey) {
+        headers['signoz-ingestion-key'] = this.config.apiKey;
+      }
+
+      await axios.post(`${this.config.endpoint}/v1/logs`, payload, {
+        headers
+      });
+
+    } catch (error) {
+      console.error('Erro ao exportar log para SigNoz:', error);
+    }
+  }
+
+  private buildAttributes(logEntry: LogEntry, durationMs?: number): any[] {
+    const attrs: any[] = [];
+
+    // Deriva duration em ms de várias fontes: argumento, performance.duration, logEntry.duration e até do message "(10ms)"
+    let effectiveDurationMs: number | undefined = durationMs;
+
+    // 1) performance.duration (string como "10ms" ou "0.5s")
+    if (effectiveDurationMs === undefined) {
+      const perfDur = (logEntry as any)?.performance?.duration;
+      const parsed = this.parseDurationMs(perfDur);
+      if (typeof parsed === 'number' && isFinite(parsed)) {
+        effectiveDurationMs = parsed;
+      }
+    }
+
+    // 2) logEntry.duration|durationMs (qualquer formato)
+    if (effectiveDurationMs === undefined) {
+      const topDur = (logEntry as any)?.durationMs ?? (logEntry as any)?.duration;
+      const parsed = this.parseDurationMs(topDur);
+      if (typeof parsed === 'number' && isFinite(parsed)) {
+        effectiveDurationMs = parsed;
+      }
+    }
+
+    // 3) message no formato "(10ms)" ou "(0.5s)"
+    if (effectiveDurationMs === undefined && typeof (logEntry as any)?.message === 'string') {
+      const msg = (logEntry as any).message.toLowerCase();
+      const m = msg.match(/\((\d+(?:\.\d+)?)\s*(ms|s|us)\)/i);
+      if (m) {
+        const val = Number(m[1]);
+        const unit = m[2];
+        if (!isNaN(val)) {
+          if (unit === 'ms') effectiveDurationMs = val;
+          else if (unit === 's') effectiveDurationMs = val * 1000;
+          else if (unit === 'us') effectiveDurationMs = Math.floor(val / 1000);
+        }
+      }
+    }
+
+    // Correlações (apenas como attributes se não existirem no topo — mas em geral, não duplicamos)
+    const hasTopTrace = Boolean((logEntry as any).traceId || (logEntry as any).trace_id);
+    const hasTopSpan  = Boolean((logEntry as any).spanId  || (logEntry as any).span_id);
+
+    if (!hasTopTrace && (logEntry as any).traceId) {
+      attrs.push({ key: 'trace.id', value: { stringValue: (logEntry as any).traceId } });
+    }
+    if (!hasTopSpan && (logEntry as any).spanId) {
+      attrs.push({ key: 'span.id', value: { stringValue: (logEntry as any).spanId } });
+    }
+
+    // Canonical request id
+    const requestId = (logEntry as any).requestId ?? (logEntry as any).request_id;
+    if (requestId) attrs.push({ key: 'request.id', value: { stringValue: String(requestId) } });
+
+    if ((logEntry as any).correlationId) attrs.push({ key: 'correlation.id', value: { stringValue: (logEntry as any).correlationId } });
+    if ((logEntry as any).userId)        attrs.push({ key: 'user.id', value: { stringValue: (logEntry as any).userId } });
+
+    // HTTP básicos
+    const method = (logEntry as any)?.request?.method || (logEntry as any)?.method;
+    const urlPath = (logEntry as any)?.url || (logEntry as any)?.request?.url;
+    const statusCode = (logEntry as any)?.statusCode ?? (logEntry as any)?.response?.statusCode;
+    const respSize = (logEntry as any)?.response?.size;
+
+    if (method) attrs.push({ key: 'http.method', value: { stringValue: String(method) } });
+    if (urlPath) attrs.push({ key: 'url.path', value: { stringValue: String(urlPath) } });
+    if (Number.isFinite(Number(statusCode))) attrs.push({ key: 'http.status_code', value: { intValue: Number(statusCode) } });
+    if (Number.isFinite(Number(respSize)))   attrs.push({ key: 'response.size', value: { intValue: Number(respSize) } });
+    if (typeof effectiveDurationMs === 'number' && isFinite(effectiveDurationMs)) {
+      attrs.push({ key: 'duration_ms', value: { intValue: Math.round(effectiveDurationMs) } });
+    }
+
+    // Message pinável
+    if ((logEntry as any).message) {
+      attrs.push({ key: 'message', value: { stringValue: String((logEntry as any).message) } });
+    }
+
+    // Somente primitivos/arrays de primitivos do context viram attributes
+    if ((logEntry as any).context && typeof (logEntry as any).context === 'object') {
+      for (const [k, v] of Object.entries((logEntry as any).context)) {
+        if (this.isPrimitiveOrArrayOfPrimitives(v)) {
+          // normaliza chaves duplicadas que chegam como snake_case
+          const key = k === 'request_id' ? 'request.id' : k;
+          attrs.push({ key, value: this.toAnyValue(v) });
+        }
+      }
+    }
+
+    // Sanitize
+    return attrs.filter(a => {
+      const val = a.value;
+      return (
+        val?.stringValue !== '' ||
+        typeof val?.boolValue === 'boolean' ||
+        typeof val?.intValue === 'number' ||
+        typeof val?.doubleValue === 'number' ||
+        (val?.arrayValue?.values?.length ?? 0) > 0
+      );
+    });
+  }
+
+  private buildBodyObject(logEntry: LogEntry, durationMs?: number): Record<string, any> {
+    const utcIso = (logEntry as any).timestamp instanceof Date
+      ? (logEntry as any).timestamp.toISOString()
+      : new Date(String((logEntry as any).timestamp ?? Date.now())).toISOString();
+
+    const obj: Record<string, any> = {
+      ip: (logEntry as any).ip,
+      userAgent: (logEntry as any).userAgent,
+      timestamp: utcIso,
+    };
+
+    if ((logEntry as any).performance) obj.performance = (logEntry as any).performance;
+    if (Number.isFinite(Number(durationMs))) obj.duration_ms = Number(durationMs);
+
+    if ((logEntry as any).request) obj.request = (logEntry as any).request;
+    if ((logEntry as any).response) obj.response = (logEntry as any).response;
+
+    // Move para body.context apenas o que NÃO é primitivo/array de primitivos
+    if ((logEntry as any).context && typeof (logEntry as any).context === 'object') {
+      const complex: Record<string, any> = {};
+      for (const [k, v] of Object.entries((logEntry as any).context)) {
+        if (!this.isPrimitiveOrArrayOfPrimitives(v)) {
+          complex[k] = v;
+        }
+      }
+      if (Object.keys(complex).length) obj.context = complex;
+    }
+
+    if ((logEntry as any).error) obj.error = (logEntry as any).error;
+
+    // Garantia: não manter 'duration' string no body
+    if ('duration' in obj) delete (obj as any).duration;
+
+    return obj;
+  }
+
+  // Helper para converter valores para AnyValue
+  private toAnyValue(v: any): any {
+    if (v === null || v === undefined) return { stringValue: "" }
+
+    switch (typeof v) {
+      case "string":  return { stringValue: v }
+      case "number":  return Number.isInteger(v) ? { intValue: v } : { doubleValue: v }
+      case "boolean": return { boolValue: v }
+      case "object":
+        if (Array.isArray(v)) {
+          return {
+            arrayValue: { values: v.map((item: any) => this.toAnyValue(item)) }
+          }
+        }
+        // objeto plano -> kvlistValue
+        return {
+          kvlistValue: {
+            values: Object.entries(v).map(([k, val]) => ({ key: k, value: this.toAnyValue(val) }))
+          }
+        }
+      default:
+        return { stringValue: String(v) }
+    }
+  }
+
+  private isPrimitiveOrArrayOfPrimitives(v: any): boolean {
+    const isPrim = (x: any) => ['string', 'number', 'boolean'].includes(typeof x) || x === null || x === undefined;
+    if (isPrim(v)) return true;
+    if (Array.isArray(v)) return v.every(isPrim);
+    return false;
+  }
+
+  private getSeverityNumber(level: string): number {
+    const severityMap: { [key: string]: number } = {
+      'trace': 1,
+      'debug': 5,
+      'info': 9,
+      'warn': 13,
+      'error': 17,
+      'fatal': 21,
+    };
+    return severityMap[level.toLowerCase()] || 9;
+  }
+
+  async shutdown(): Promise<void> {
+    // No-op
+  }
+}

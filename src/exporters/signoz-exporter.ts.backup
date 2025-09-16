@@ -1,0 +1,147 @@
+import { LogEntry } from '../types';
+import { SigNozConfig } from '../types';
+import axios from 'axios';
+
+export class SigNozExporter {
+  private config: SigNozConfig;
+
+  constructor(config: SigNozConfig) {
+    this.config = config;
+  }
+
+  async exportLog(logEntry: LogEntry): Promise<void> {
+    try {
+      const timestamp = logEntry.timestamp.getTime() * 1000000; // Convert to nanoseconds
+      
+      // Usar o formato OTLP que funcionou no teste simples
+      const payload = {
+        resourceLogs: [{
+          resource: {
+            attributes: [
+              {
+                key: "service.name",
+                value: { stringValue: this.config.serviceName }
+              },
+              {
+                key: "service.version",
+                value: { stringValue: this.config.serviceVersion || "1.0.0" }
+              },
+              {
+                key: "deployment.environment",
+                value: { stringValue: this.config.environment || "production" }
+              }
+            ]
+          },
+          scopeLogs: [{
+            logRecords: [{
+              timeUnixNano: timestamp.toString(),
+              severityText: logEntry.level.toUpperCase(),
+              severityNumber: this.getSeverityNumber(logEntry.level),
+              body: { stringValue: logEntry.message },
+              attributes: this.buildAttributes(logEntry)
+            }]
+          }]
+        }]
+      };
+
+      // Enviar para SigNoz
+      await axios.post(`${this.config.endpoint}/v1/logs`, payload, {
+        headers: {
+          'Content-Type': 'application/json',
+          'signoz-access-token': this.config.apiKey,
+        },
+        timeout: 5000,
+      });
+
+    } catch (error) {
+      // eslint-disable-next-line no-console
+      console.error('Erro ao exportar log para SigNoz:', error);
+      throw error;
+    }
+  }
+
+  private buildAttributes(logEntry: LogEntry): any[] {
+    const attributes = [];
+
+    // Atributos de rastreamento
+    if (logEntry.traceId) {
+      attributes.push({
+        key: "trace_id",
+        value: { stringValue: logEntry.traceId }
+      });
+    }
+
+    if (logEntry.spanId) {
+      attributes.push({
+        key: "span_id", 
+        value: { stringValue: logEntry.spanId }
+      });
+    }
+
+    if (logEntry.userId) {
+      attributes.push({
+        key: "user.id",
+        value: { stringValue: logEntry.userId }
+      });
+    }
+
+    if (logEntry.requestId) {
+      attributes.push({
+        key: "request.id",
+        value: { stringValue: logEntry.requestId }
+      });
+    }
+
+    if (logEntry.correlationId) {
+      attributes.push({
+        key: "correlation.id",
+        value: { stringValue: logEntry.correlationId }
+      });
+    }
+
+    // Contexto customizado - processar objetos aninhados
+    if (logEntry.context) {
+      this.flattenObject(logEntry.context, '', attributes);
+    }
+
+    return attributes;
+  }
+
+  private flattenObject(obj: any, prefix: string, attributes: any[]): void {
+    Object.entries(obj).forEach(([key, value]) => {
+      const fullKey = prefix ? `${prefix}.${key}` : key;
+      
+      if (value && typeof value === 'object' && !Array.isArray(value)) {
+        // Se for um objeto, recursivamente processar
+        this.flattenObject(value, fullKey, attributes);
+      } else if (Array.isArray(value)) {
+        // Se for array, converter para string JSON
+        attributes.push({
+          key: fullKey,
+          value: { stringValue: JSON.stringify(value) }
+        });
+      } else {
+        // Valores primitivos
+        attributes.push({
+          key: fullKey,
+          value: { stringValue: String(value) }
+        });
+      }
+    });
+  }
+
+  private getSeverityNumber(level: string): number {
+    const severityMap: { [key: string]: number } = {
+      'trace': 1,
+      'debug': 5,
+      'info': 9,
+      'warn': 13,
+      'error': 17,
+    };
+    return severityMap[level.toLowerCase()] || 9;
+  }
+
+  async shutdown(): Promise<void> {
+    // No-op
+  }
+}
