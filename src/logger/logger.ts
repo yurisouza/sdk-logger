@@ -1,4 +1,4 @@
-import winston from 'winston';
+import winston, { format } from 'winston';
 import { LogLevel, LogEntry, LoggerConfig, LogContext, TracedLoggerContext } from '../types';
 import { SigNozTransport } from '../transport/signoz-transport';
 
@@ -24,32 +24,7 @@ export class Logger {
           format: winston.format.combine(
             winston.format.timestamp(),
             winston.format.colorize(),
-            winston.format.printf(({ timestamp, level, message, ...meta }) => {
-              // Filtrar campos específicos do Winston
-              const { context, service, version, environment, traceId, requestId, userId, spanId, correlationId } = meta;
-              
-              // Construir mensagem principal
-              let logMessage = `${timestamp} [${level}]: ${message}`;
-              
-              // Adicionar contexto se existir
-              if (context) {
-                logMessage += `\n${JSON.stringify(context, null, 2)}`;
-              }
-              
-              // Adicionar metadados de rastreamento se existirem
-              const trackingInfo = [];
-              if (traceId) trackingInfo.push(`traceId: ${traceId}`);
-              if (requestId) trackingInfo.push(`requestId: ${requestId}`);
-              if (userId) trackingInfo.push(`userId: ${userId}`);
-              if (spanId) trackingInfo.push(`spanId: ${spanId}`);
-              if (correlationId) trackingInfo.push(`correlationId: ${correlationId}`);
-              
-              if (trackingInfo.length > 0) {
-                logMessage += `\n[${trackingInfo.join(', ')}]`;
-              }
-              
-              return logMessage;
-            })
+            winston.format.json()
           ),
         })
       );
