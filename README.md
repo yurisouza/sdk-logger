@@ -5,7 +5,7 @@ SDK para padronização de logs e integração automática com SigNoz Cloud, cap
 ## ⚡ Instalação Rápida
 
 ```bash
-npm install @yurisouza/sdk-logger
+npm install @psouza.yuri/sdk-logger
 ```
 
 ## 🎯 Funcionalidades
@@ -205,6 +205,27 @@ npm test
 # Lint
 npm run lint
 ```
+
+## 🤖 Automação e Releases
+
+Este projeto usa GitHub Actions para automatizar a publicação no NPM:
+
+- **CI/CD**: Testes automáticos em cada PR
+- **Publishing**: Publicação automática quando uma tag é criada
+- **Releases**: Criação automática de releases no GitHub
+
+### Criar um Release
+
+```bash
+# Usar o script automatizado
+./scripts/release.sh patch "Descrição da mudança"
+
+# Ou manualmente
+npm version patch
+git push origin main --tags
+```
+
+📚 **Documentação completa**: [RELEASE.md](./RELEASE.md)
 
 ## 📄 Licença
 
