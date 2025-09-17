@@ -1,6 +1,6 @@
 {
   "name": "psouza-sdk-logger",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "SDK para logs padronizados com integração automática ao SigNoz Cloud - captura automaticamente todos os requests e responses da API",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
