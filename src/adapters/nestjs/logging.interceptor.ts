@@ -3,6 +3,8 @@ import { Observable } from 'rxjs';
 import { tap, catchError } from 'rxjs/operators';
 import { Logger } from '../../logger/logger';
 import { LoggerConfig } from '../../types';
+import { initializeTelemetry } from './telemetry';
+import { trace, context, SpanStatusCode, trace as traceAPI } from '@opentelemetry/api';
 
 @Injectable()
 export class LoggingInterceptor implements NestInterceptor {
@@ -27,6 +29,23 @@ export class LoggingInterceptor implements NestInterceptor {
     // Merge com configuração fornecida
     const finalConfig = this.mergeConfig(defaultConfig, config);
     
+    // Inicializar OpenTelemetry se tracing estiver habilitado
+    if (finalConfig.signoz?.enableTracing) {
+      console.log('🔧 Inicializando OpenTelemetry para tracing...');
+      
+      // Configurar variáveis de ambiente para o OpenTelemetry
+      process.env.SIGNOZ_ENDPOINT = finalConfig.signoz.endpoint;
+      process.env.SIGNOZ_API_KEY = finalConfig.signoz.apiKey;
+      process.env.SIGNOZ_SERVICE_NAME = finalConfig.signoz.serviceName;
+      process.env.SIGNOZ_SERVICE_VERSION = finalConfig.signoz.serviceVersion;
+      process.env.SIGNOZ_ENVIRONMENT = finalConfig.signoz.environment;
+      
+      // Inicializar OpenTelemetry
+      initializeTelemetry();
+    } else {
+      console.log('⚠️ Tracing desabilitado - apenas logs serão enviados');
+    }
+    
     this.logger = new Logger(finalConfig);
   }
 
@@ -39,10 +58,38 @@ export class LoggingInterceptor implements NestInterceptor {
     const ip = request.ip || request.connection.remoteAddress;
     
     // Gerar IDs únicos para rastreamento
-    const traceId = this.generateTraceId();
-    const spanId = this.generateSpanId();
     const requestId = this.generateRequestId();
     const userId = this.extractUserId(request);
+    
+    // Usar contexto ativo do OpenTelemetry para correlacionar logs e traces
+    const activeSpan = trace.getActiveSpan();
+    let traceId = '';
+    let spanId = '';
+    
+    if (activeSpan) {
+      const spanContext = activeSpan.spanContext();
+      traceId = spanContext.traceId;
+      spanId = spanContext.spanId;
+    } else {
+      // Fallback: criar span manualmente se não houver contexto ativo
+      const tracer = trace.getTracer('api-todolist', '1.0.0');
+      const span = tracer.startSpan(`${method} ${url}`, {
+        attributes: {
+          'http.method': method,
+          'http.url': url,
+          'http.user_agent': userAgent,
+          'http.client_ip': ip,
+          'service.name': 'api-todolist',
+          'service.version': '1.0.0',
+          'request.id': requestId,
+          'user.id': userId || '',
+        }
+      });
+      
+      const spanContext = span.spanContext();
+      traceId = spanContext.traceId;
+      spanId = spanContext.spanId;
+    }
     
     // Logger com contexto de rastreamento
     const tracedLogger = this.logger
@@ -59,6 +106,8 @@ export class LoggingInterceptor implements NestInterceptor {
     return next.handle().pipe(
       tap((data: any) => {
         const duration = Date.now() - startTime;
+        
+        // O span será finalizado automaticamente pelo OpenTelemetry
         
         // Log estruturado com nomenclatura clara
         const logMessage = `${method} ${url} → ${response.statusCode} (${duration}ms)`;
@@ -105,6 +154,8 @@ export class LoggingInterceptor implements NestInterceptor {
       }),
       catchError((error: any) => {
         const duration = Date.now() - startTime;
+        
+        // O span será finalizado automaticamente pelo OpenTelemetry
         
         // Log estruturado para erros com nomenclatura clara
         const errorMessage = `${method} ${url} → ${error.status || 500} (${duration}ms) - ${error.message}`;

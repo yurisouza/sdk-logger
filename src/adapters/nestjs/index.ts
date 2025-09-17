@@ -8,3 +8,4 @@ export { initializeTelemetry, shutdownTelemetry } from './telemetry';
 
 // Re-exportar tipos necessários
 export { LoggerConfig } from '../../types';
+

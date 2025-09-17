@@ -61,8 +61,8 @@ export class Logger {
         new winston.transports.File({
           filename: this.config.filePath || 'logs/application.log',
           level: this.config.logLevel || LogLevel.INFO,
-          maxsize: this.parseFileSize(this.config.maxFileSize || '10m'),
-          maxFiles: this.config.maxFiles || 5,
+          maxsize: this.parseFileSize(this.config.maxFileSize || '128m'), // 128MB por padrão
+          maxFiles: 1, // Apenas 1 arquivo (sobrescrever)
           format: winston.format.combine(
             winston.format.timestamp(),
             winston.format.json()
@@ -98,7 +98,7 @@ export class Logger {
     };
     
     const match = size.match(/^(\d+)([bkmg])$/i);
-    if (!match) return 10 * 1024 * 1024; // Default 10MB
+    if (!match) return 128 * 1024 * 1024; // Default 128MB
     
     const [, value, unit] = match;
     return parseInt(value) * units[unit.toLowerCase()];

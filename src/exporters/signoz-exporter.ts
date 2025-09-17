@@ -24,9 +24,6 @@ export class SigNozExporter {
 
   async exportLog(logEntry: LogEntry): Promise<void> {
 
-    console.log('exportLog');
-    console.log(JSON.stringify(logEntry, null, 2));
-    
     try {
       const timestampNs = String(logEntry.timestamp.getTime() * 1_000_000); // epoch ns (UTC-based)
       const durationMs: number | undefined =

@@ -44,7 +44,8 @@ export function setupCompleteLogging(
       serviceName: serviceName,
       serviceVersion: serviceVersion,
       environment: environment,
-      enableLogs: true
+      enableLogs: true,
+      enableTracing: true
     }
   };
 
