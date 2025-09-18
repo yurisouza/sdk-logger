@@ -23,25 +23,21 @@ export function setupTelemetry(
   config: SigNozConfig
 ): void {
   if (sdk) {
-    console.warn('OpenTelemetry já foi inicializado');
     return;
   }
 
   try {
     // Validação básica da config
     if (!config || typeof config !== 'object') {
-      console.warn('setupTelemetry: config inválido, ignorando telemetria');
       return;
     }
 
     // Validação dos campos obrigatórios
     if (!config.serviceName || typeof config.serviceName !== 'string') {
-      console.warn('setupTelemetry: serviceName inválido, ignorando telemetria');
       return;
     }
 
     if (!config.endpoint || typeof config.endpoint !== 'string') {
-      console.warn('setupTelemetry: endpoint inválido, ignorando telemetria');
       return;
     }
 
@@ -122,7 +118,7 @@ export function setupTelemetry(
       },
 
       // NestJS — pode ficar desabilitado se os spans HTTP + service/db já bastam
-      '@opentelemetry/instrumentation-nestjs-core': { enabled: false },
+      '@opentelemetry/instrumentation-nestjs-core': { enabled: true },
 
       // Databases
       '@opentelemetry/instrumentation-mongodb': { enabled: true },
@@ -175,10 +171,7 @@ export function setupTelemetry(
     });
 
     sdk.start();
-    
-    console.log(`✅ OpenTelemetry configurado com auto-instrumentations`);
   } catch (error) {
-    console.warn('setupTelemetry: Erro ao inicializar OpenTelemetry (ignorando):', error instanceof Error ? error.message : String(error));
     // Não quebra a aplicação, apenas ignora a telemetria
   }
 }
@@ -191,9 +184,8 @@ export async function shutdownTelemetry(): Promise<void> {
     if (sdk) {
       await sdk.shutdown();
       sdk = null;
-      console.log('🛑 OpenTelemetry finalizado');
     }
   } catch (error) {
-    console.warn('shutdownTelemetry: Erro ao finalizar OpenTelemetry (ignorando):', error instanceof Error ? error.message : String(error));
+    // Erro silencioso
   }
 }

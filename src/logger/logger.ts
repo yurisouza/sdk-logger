@@ -12,15 +12,11 @@ class SigNozWinstonTransport extends Transport {
   }
 
   log(info: any, callback: () => void) {
-    console.log('🔍 SigNozWinstonTransport log chamado:', info.message);
-    
     this.exporter.exportLog(info)
       .then(() => {
-        console.log('✅ Log enviado para SigNoz com sucesso');
         callback();
       })
       .catch((error) => {
-        console.warn('❌ Erro ao enviar log para SigNoz:', error);
         callback();
       });
   }

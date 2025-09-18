@@ -25,19 +25,16 @@ export class SigNozExporter {
     try {
       // Validação básica do logEntry
       if (!logEntry || typeof logEntry !== 'object') {
-        console.warn('SigNozExporter: logEntry inválido, ignorando');
         return;
       }
 
       // Validação do timestamp
       if (!logEntry.timestamp || !(logEntry.timestamp instanceof Date)) {
-        console.warn('SigNozExporter: timestamp inválido, usando data atual');
         logEntry.timestamp = new Date();
       }
 
       // Validação do level
       if (!logEntry.level || typeof logEntry.level !== 'string') {
-        console.warn('SigNozExporter: level inválido, usando INFO');
         logEntry.level = LogLevel.INFO;
       }
 
@@ -104,8 +101,7 @@ export class SigNozExporter {
       });
 
     } catch (error) {
-      // Log do erro mas não quebra a aplicação
-      console.warn('SigNozExporter: Erro ao exportar log (ignorando):', error instanceof Error ? error.message : String(error));
+      // Erro silencioso - não quebra a aplicação
     }
   }
 
@@ -172,12 +168,6 @@ export class SigNozExporter {
     const statusCode = (logEntry as any)?.context?.response?.statusCode;
     const respSize = (logEntry as any)?.context?.response?.responseSize;
 
-    console.log('🔍 DEBUG HTTP Attributes:');
-    console.log('method:', method);
-    console.log('urlPath:', urlPath);
-    console.log('statusCode:', statusCode);
-    console.log('respSize:', respSize);
-    console.log('logEntry structure:', JSON.stringify(logEntry, null, 2));
 
     if (method) attrs.push({ key: 'http.method', value: { stringValue: String(method) } });
     if (urlPath) attrs.push({ key: 'url.path', value: { stringValue: String(urlPath) } });

@@ -24,7 +24,6 @@ export class LoggingInterceptor implements NestInterceptor {
     try {
       // Validação básica do context
       if (!context || !context.switchToHttp) {
-        console.warn('LoggingInterceptor: context inválido, ignorando logging');
         return next.handle();
       }
 
@@ -33,7 +32,6 @@ export class LoggingInterceptor implements NestInterceptor {
       
       // Validação básica do request
       if (!request || typeof request !== 'object') {
-        console.warn('LoggingInterceptor: request inválido, ignorando logging');
         return next.handle();
       }
       
@@ -61,7 +59,6 @@ export class LoggingInterceptor implements NestInterceptor {
           spanId = this.generateHexId(16);  // 16 caracteres hexadecimais para spanId
         }
       } catch (traceError) {
-        console.warn('LoggingInterceptor: Erro ao obter trace context, usando IDs gerados:', traceError);
         traceId = this.generateHexId(32);
         spanId = this.generateHexId(16);
       }
@@ -99,7 +96,7 @@ export class LoggingInterceptor implements NestInterceptor {
             spanId,
           });
         } catch (logError) {
-          console.warn('LoggingInterceptor: Erro ao fazer log de sucesso (ignorando):', logError);
+          // Erro silencioso - não quebra a aplicação
         }
       }),
       catchError((error) => {
@@ -131,14 +128,13 @@ export class LoggingInterceptor implements NestInterceptor {
             spanId,
           });
         } catch (logError) {
-          console.warn('LoggingInterceptor: Erro ao fazer log de erro (ignorando):', logError);
+          // Erro silencioso - não quebra a aplicação
         }
         
         throw error;
       })
     );
     } catch (interceptError) {
-      console.warn('LoggingInterceptor: Erro crítico no intercept (ignorando logging):', interceptError);
       // Retorna o Observable original sem logging
       return next.handle();
     }

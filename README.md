@@ -139,6 +139,241 @@ No SigNoz:
 - `action` e `category` aparecerão como **attributes filtráveis**
 - Qualquer objeto/array complexo adicionado irá para **body.context** como detalhe navegável
 
+## 🔍 Criando Traces Customizados
+
+Para rastrear operações específicas do seu negócio, você pode criar spans customizados que aparecerão no trace distribuído.
+
+### 1. Importar o Tracer
+
+```typescript
+import { trace } from '@opentelemetry/api';
+
+// Obter o tracer
+const tracer = trace.getTracer('meu-servico', '1.0.0');
+```
+
+### 2. Criar Spans Customizados
+
+```typescript
+// Exemplo: Rastrear operação de negócio
+async function processarPagamento(pagamento: Pagamento) {
+  // Criar span customizado
+  const span = tracer.startSpan('processar-pagamento', {
+    attributes: {
+      'payment.id': pagamento.id,
+      'payment.amount': pagamento.valor,
+      'payment.method': pagamento.metodo,
+      'business.operation': 'payment_processing'
+    }
+  });
+
+  try {
+    // Sua lógica de negócio aqui
+    const resultado = await validarPagamento(pagamento);
+    
+    // Adicionar atributos de sucesso
+    span.setAttributes({
+      'payment.status': 'success',
+      'payment.processed_at': new Date().toISOString()
+    });
+
+    return resultado;
+  } catch (error) {
+    // Marcar span como erro
+    span.recordException(error);
+    span.setStatus({ code: SpanStatusCode.ERROR, message: error.message });
+    throw error;
+  } finally {
+    // Sempre finalizar o span
+    span.end();
+  }
+}
+```
+
+### 3. Spans Aninhados (Hierárquicos)
+
+```typescript
+async function processarPedido(pedido: Pedido) {
+  const span = tracer.startSpan('processar-pedido', {
+    attributes: {
+      'order.id': pedido.id,
+      'order.total': pedido.total
+    }
+  });
+
+  try {
+    // Span filho: validação
+    const validacaoSpan = tracer.startSpan('validar-pedido', {
+      parent: span
+    });
+    
+    await validarPedido(pedido);
+    validacaoSpan.end();
+
+    // Span filho: processamento de pagamento
+    const pagamentoSpan = tracer.startSpan('processar-pagamento', {
+      parent: span,
+      attributes: {
+        'payment.method': pedido.metodoPagamento
+      }
+    });
+    
+    await processarPagamento(pedido.pagamento);
+    pagamentoSpan.end();
+
+    // Span filho: envio de email
+    const emailSpan = tracer.startSpan('enviar-email-confirmacao', {
+      parent: span
+    });
+    
+    await enviarEmailConfirmacao(pedido);
+    emailSpan.end();
+
+    span.setStatus({ code: SpanStatusCode.OK });
+  } catch (error) {
+    span.recordException(error);
+    span.setStatus({ code: SpanStatusCode.ERROR, message: error.message });
+    throw error;
+  } finally {
+    span.end();
+  }
+}
+```
+
+### 4. Usando com Decorators
+
+```typescript
+// decorator para traces customizados
+export function TraceOperation(operationName: string, attributes?: Record<string, any>) {
+  return function (target: any, propertyName: string, descriptor: PropertyDescriptor) {
+    const method = descriptor.value;
+
+    descriptor.value = async function (...args: any[]) {
+      const span = tracer.startSpan(operationName, {
+        attributes: {
+          'method.name': propertyName,
+          'class.name': target.constructor.name,
+          ...attributes
+        }
+      });
+
+      try {
+        const result = await method.apply(this, args);
+        span.setStatus({ code: SpanStatusCode.OK });
+        return result;
+      } catch (error) {
+        span.recordException(error);
+        span.setStatus({ code: SpanStatusCode.ERROR, message: error.message });
+        throw error;
+      } finally {
+        span.end();
+      }
+    };
+  };
+}
+
+// Uso do decorator
+class PedidoService {
+  @TraceOperation('calcular-frete', { 'business.operation': 'shipping_calculation' })
+  async calcularFrete(endereco: Endereco) {
+    // Lógica de cálculo de frete
+    return await this.freteService.calcular(endereco);
+  }
+}
+```
+
+### 5. Integração com Logger
+
+```typescript
+import { Logger } from '@psouza.yuri/sdk-logger';
+
+class PedidoService {
+  private logger = new Logger({
+    service: 'pedido-service',
+    version: '1.0.0',
+    environment: 'production',
+    signoz: {
+      endpoint: process.env.SIGNOZ_ENDPOINT!,
+      apiKey: process.env.SIGNOZ_API_KEY!,
+      serviceName: 'pedido-service',
+      serviceVersion: '1.0.0',
+      environment: 'production'
+    }
+  });
+
+  async processarPedido(pedido: Pedido) {
+    const span = tracer.startSpan('processar-pedido');
+    
+    try {
+      // Log com contexto de trace
+      this.logger.info('Iniciando processamento do pedido', {
+        orderId: pedido.id,
+        traceId: span.spanContext().traceId,
+        spanId: span.spanContext().spanId
+      });
+
+      const resultado = await this.processar(pedido);
+      
+      this.logger.info('Pedido processado com sucesso', {
+        orderId: pedido.id,
+        result: resultado
+      });
+
+      return resultado;
+    } catch (error) {
+      this.logger.error('Erro ao processar pedido', {
+        orderId: pedido.id,
+        error: error.message
+      });
+      throw error;
+    } finally {
+      span.end();
+    }
+  }
+}
+```
+
+### 6. Tipos de Spans Recomendados
+
+```typescript
+// Operações de negócio
+tracer.startSpan('criar-usuario')
+tracer.startSpan('processar-pagamento')
+tracer.startSpan('enviar-notificacao')
+
+// Operações de integração
+tracer.startSpan('chamar-api-externa')
+tracer.startSpan('consultar-banco-dados')
+tracer.startSpan('enviar-email')
+
+// Operações de sistema
+tracer.startSpan('validar-dados')
+tracer.startSpan('transformar-dados')
+tracer.startSpan('gerar-relatorio')
+```
+
+### 7. Atributos Recomendados
+
+```typescript
+// Identificadores
+'user.id': '12345'
+'order.id': 'ORD-2024-001'
+'payment.id': 'PAY-789'
+
+// Categorização
+'business.operation': 'payment_processing'
+'business.domain': 'ecommerce'
+'business.action': 'create_order'
+
+// Performance
+'operation.duration_ms': 150
+'operation.retry_count': 2
+
+// Status
+'operation.status': 'success'
+'operation.error_code': 'VALIDATION_ERROR'
+```
+
 ## ✅ Pronto!
 
 Agora todos os requests e responses da sua API serão automaticamente logados e rastreados no SigNoz Cloud!
