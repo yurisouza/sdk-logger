@@ -1,5 +1,4 @@
-import { LogEntry } from '../types';
-import { SigNozConfig } from '../types';
+import { LogEntry, SigNozConfig, LogLevel } from '../types';
 import axios from 'axios';
 
 export class SigNozExporter {
@@ -23,8 +22,25 @@ export class SigNozExporter {
   }
 
   async exportLog(logEntry: LogEntry): Promise<void> {
-
     try {
+      // Validação básica do logEntry
+      if (!logEntry || typeof logEntry !== 'object') {
+        console.warn('SigNozExporter: logEntry inválido, ignorando');
+        return;
+      }
+
+      // Validação do timestamp
+      if (!logEntry.timestamp || !(logEntry.timestamp instanceof Date)) {
+        console.warn('SigNozExporter: timestamp inválido, usando data atual');
+        logEntry.timestamp = new Date();
+      }
+
+      // Validação do level
+      if (!logEntry.level || typeof logEntry.level !== 'string') {
+        console.warn('SigNozExporter: level inválido, usando INFO');
+        logEntry.level = LogLevel.INFO;
+      }
+
       const timestampNs = String(logEntry.timestamp.getTime() * 1_000_000); // epoch ns (UTC-based)
       const durationMs: number | undefined =
         this.parseDurationMs((logEntry as any).durationMs ?? (logEntry as any)?.performance?.duration);
@@ -83,11 +99,13 @@ export class SigNozExporter {
       }
 
       await axios.post(`${this.config.endpoint}/v1/logs`, payload, {
-        headers
+        headers,
+        timeout: 5000, // 5 segundos de timeout
       });
 
     } catch (error) {
-      console.error('Erro ao exportar log para SigNoz:', error);
+      // Log do erro mas não quebra a aplicação
+      console.warn('SigNozExporter: Erro ao exportar log (ignorando):', error instanceof Error ? error.message : String(error));
     }
   }
 
@@ -188,7 +206,9 @@ export class SigNozExporter {
       for (const [k, v] of Object.entries((logEntry as any).context)) {
         if (!excludedFields.includes(k) && this.isPrimitiveOrArrayOfPrimitives(v)) {
           // normaliza chaves duplicadas que chegam como snake_case
-          const key = k === 'request_id' ? 'request.id' : k;
+          let key = k === 'request_id' ? 'request.id' : k;
+          // Renomear date para date_utc
+          if (k === 'date') key = 'date_utc';
           attrs.push({ key, value: this.toAnyValue(v) });
         }
       }
@@ -213,9 +233,9 @@ export class SigNozExporter {
       : new Date(String((logEntry as any).timestamp ?? Date.now())).toISOString();
 
     const obj: Record<string, any> = {
-      ip: (logEntry as any).request?.ip,
-      userAgent: (logEntry as any).request?.userAgent,
-      timestamp: utcIso,
+      ip: (logEntry as any).context?.request?.ip,
+      userAgent: (logEntry as any).context?.request?.userAgent,
+      date_utc: utcIso,
     };
 
     if ((logEntry as any).performance) obj.performance = (logEntry as any).performance;

@@ -21,95 +21,127 @@ export class LoggingInterceptor implements NestInterceptor {
   }
 
   intercept(context: ExecutionContext, next: CallHandler): Observable<any> {
-    const request = context.switchToHttp().getRequest();
-    const response = context.switchToHttp().getResponse();
-    
-    const { method, url, headers, body } = request;
-    const userAgent = headers['user-agent'] || '';
-    const ip = headers['x-user-ip'] || request.ip || request.connection.remoteAddress;
-    
-    // Gerar IDs únicos para rastreamento
-    const requestId = this.generateRequestId();
-    const userId = this.extractUserId(request);
-    
-    // Usar contexto ativo do OpenTelemetry para correlacionar logs e traces
-    const activeSpan = trace.getActiveSpan();
-    let traceId = '';
-    let spanId = '';
-    
-    if (activeSpan) {
-      const spanContext = activeSpan.spanContext();
-      traceId = spanContext.traceId;
-      spanId = spanContext.spanId;
-    } else {
-      // Se não houver contexto ativo, gerar IDs em formato hexadecimal válido
-      traceId = this.generateHexId(32); // 32 caracteres hexadecimais para traceId
-      spanId = this.generateHexId(16);  // 16 caracteres hexadecimais para spanId
-    }
-    
-    const startTime = Date.now();
+    try {
+      // Validação básica do context
+      if (!context || !context.switchToHttp) {
+        console.warn('LoggingInterceptor: context inválido, ignorando logging');
+        return next.handle();
+      }
+
+      const request = context.switchToHttp().getRequest();
+      const response = context.switchToHttp().getResponse();
+      
+      // Validação básica do request
+      if (!request || typeof request !== 'object') {
+        console.warn('LoggingInterceptor: request inválido, ignorando logging');
+        return next.handle();
+      }
+      
+      const { method, url, headers, body } = request;
+      const userAgent = headers?.['user-agent'] || '';
+      const ip = headers?.['x-user-ip'] || request.ip || request.connection?.remoteAddress || 'unknown';
+      
+      // Gerar IDs únicos para rastreamento
+      const requestId = this.generateRequestId();
+      const userId = this.extractUserId(request);
+      
+      // Usar contexto ativo do OpenTelemetry para correlacionar logs e traces
+      let traceId = '';
+      let spanId = '';
+      
+      try {
+        const activeSpan = trace.getActiveSpan();
+        if (activeSpan) {
+          const spanContext = activeSpan.spanContext();
+          traceId = spanContext.traceId;
+          spanId = spanContext.spanId;
+        } else {
+          // Se não houver contexto ativo, gerar IDs em formato hexadecimal válido
+          traceId = this.generateHexId(32); // 32 caracteres hexadecimais para traceId
+          spanId = this.generateHexId(16);  // 16 caracteres hexadecimais para spanId
+        }
+      } catch (traceError) {
+        console.warn('LoggingInterceptor: Erro ao obter trace context, usando IDs gerados:', traceError);
+        traceId = this.generateHexId(32);
+        spanId = this.generateHexId(16);
+      }
+      
+      const startTime = Date.now();
     
     return next.handle().pipe(
       tap((data) => {
-        const duration = Date.now() - startTime;
-        const statusCode = response.statusCode;
-        
-        // Log estruturado no padrão de produção
-        this.logger.info(`${method} ${url} (${duration}ms)`, {
-          request: {
-            method,
-            url,
-            userAgent,
-            ip,
-            requestId,
-            userId,
-            body: this.sanitizeBody(body),
-            headers: this.sanitizeHeaders(headers),
-          },
-          response: {
-            statusCode,
-            body: this.sanitizeBody(data),
-            responseSize: this.calculateResponseSize(data),
-            headers: this.safeGetResponseHeaders(response),
-          },
-          performance: {
-            durationMs: duration,
-          },
-          traceId,
-          spanId,
-        });
+        try {
+          const duration = Date.now() - startTime;
+          const statusCode = response?.statusCode || 200;
+          
+          // Log estruturado no padrão de produção
+          this.logger.info(`${method} ${url} (${duration}ms)`, {
+            request: {
+              method,
+              url,
+              userAgent,
+              ip,
+              requestId,
+              userId,
+              body: this.sanitizeBody(body),
+              headers: this.sanitizeHeaders(headers),
+            },
+            response: {
+              statusCode,
+              body: this.sanitizeBody(data),
+              responseSize: this.calculateResponseSize(data),
+              headers: this.safeGetResponseHeaders(response),
+            },
+            performance: {
+              durationMs: duration,
+            },
+            traceId,
+            spanId,
+          });
+        } catch (logError) {
+          console.warn('LoggingInterceptor: Erro ao fazer log de sucesso (ignorando):', logError);
+        }
       }),
       catchError((error) => {
-        const duration = Date.now() - startTime;
-        const statusCode = error.status || 500;
-        
-        // Log estruturado no padrão de produção
-        this.logger.error(`${method} ${url} (${duration}ms)`, {
-          request: {
-            method,
-            url,
-            userAgent,
-            ip,
-            requestId,
-            userId,
-            body: this.sanitizeBody(body),
-            headers: this.sanitizeHeaders(headers),
-          },
-          error: {
-            message: error.message,
-            stack: error.stack,
-            statusCode,
-          },
-          performance: {
-            durationMs: duration,
-          },
-          traceId,
-          spanId,
-        });
+        try {
+          const duration = Date.now() - startTime;
+          const statusCode = error?.status || 500;
+          
+          // Log estruturado no padrão de produção
+          this.logger.error(`${method} ${url} (${duration}ms)`, {
+            request: {
+              method,
+              url,
+              userAgent,
+              ip,
+              requestId,
+              userId,
+              body: this.sanitizeBody(body),
+              headers: this.sanitizeHeaders(headers),
+            },
+            error: {
+              message: error?.message || 'Unknown error',
+              stack: error?.stack || '',
+              statusCode,
+            },
+            performance: {
+              durationMs: duration,
+            },
+            traceId,
+            spanId,
+          });
+        } catch (logError) {
+          console.warn('LoggingInterceptor: Erro ao fazer log de erro (ignorando):', logError);
+        }
         
         throw error;
       })
     );
+    } catch (interceptError) {
+      console.warn('LoggingInterceptor: Erro crítico no intercept (ignorando logging):', interceptError);
+      // Retorna o Observable original sem logging
+      return next.handle();
+    }
   }
 
   private generateRequestId(): string {
