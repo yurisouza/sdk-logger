@@ -1,0 +1,71 @@
+# Cursor Rules - SDK Logger
+
+## Padrões de Nomenclatura
+
+### Variáveis e Funções
+- Use **snake_case** para variáveis e funções
+- Exemplos: `user_id`, `request_id`, `trace_id`, `span_id`, `correlation_id`
+
+### Constantes
+- Use **UPPER_SNAKE_CASE** para constantes
+- Exemplos: `API_KEY`, `SERVICE_NAME`, `LOG_LEVEL`
+
+### Classes e Interfaces
+- Use **PascalCase** para classes e interfaces
+- Exemplos: `LoggingInterceptor`, `SigNozExporter`, `LoggerConfig`
+
+### Arquivos e Diretórios
+- Use **kebab-case** para arquivos e diretórios
+- Exemplos: `logging-interceptor.ts`, `signoz-exporter.ts`, `nestjs/`
+
+### Propriedades de Objetos
+- Use **snake_case** para propriedades de objetos JSON/API
+- Exemplos: `trace_id`, `span_id`, `request_id`, `user_id`
+
+## Padrões de Código
+
+### Imports
+```typescript
+// Ordem: bibliotecas externas, internas, relativos
+import { Injectable } from '@nestjs/common';
+import { Logger } from '../logger/logger';
+import { SigNozConfig } from '../types';
+```
+
+### Exports
+```typescript
+// Use named exports quando possível
+export { LoggingInterceptor };
+export function setupLogging() { }
+```
+
+### Comentários
+```typescript
+// Comentários em português para documentação
+// Use // para comentários de linha única
+/* Use /* */ para comentários de bloco */
+```
+
+### Estrutura de Logs
+```typescript
+// Padrão para logs estruturados
+{
+  message: "Method route (durationMs)",
+  request: { ... },
+  response: { ... },
+  performance: { ... },
+  trace_id: "...",
+  span_id: "..."
+}
+```
+
+## Regras Específicas
+
+1. **Sempre use snake_case** para IDs e identificadores
+2. **Prefira const** sobre let quando possível
+3. **Use interfaces** para definir estruturas de dados
+4. **Comente em português** para facilitar manutenção
+5. **Mantenha consistência** com o padrão OpenTelemetry
+6. **Use nomes descritivos** que expliquem o propósito
+7. **Evite abreviações** desnecessárias
+8. **Mantenha camelCase** apenas para métodos de classes

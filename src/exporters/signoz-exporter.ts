@@ -29,9 +29,25 @@ export class SigNozExporter {
       const durationMs: number | undefined =
         this.parseDurationMs((logEntry as any).durationMs ?? (logEntry as any)?.performance?.duration);
 
-      const traceId: string | undefined = (logEntry as any).traceId || (logEntry as any).trace_id || undefined;
-      const spanId: string  | undefined = (logEntry as any).spanId  || (logEntry as any).span_id  || undefined;
-      const traceFlags: number | undefined = (logEntry as any).traceFlags ?? (logEntry as any).trace_flags ?? undefined;
+      const context = (logEntry as any).context || {};
+      const traceId: string | undefined = 
+        context.traceId || 
+        context.trace_id || 
+        (logEntry as any).traceId || 
+        (logEntry as any).trace_id || 
+        undefined;
+      const spanId: string | undefined = 
+        context.spanId || 
+        context.span_id || 
+        (logEntry as any).spanId || 
+        (logEntry as any).span_id || 
+        undefined;
+      const traceFlags: number | undefined = 
+        context.traceFlags ?? 
+        context.trace_flags ?? 
+        (logEntry as any).traceFlags ?? 
+        (logEntry as any).trace_flags ?? 
+        undefined;
 
       const payload = {
         resourceLogs: [{
@@ -132,11 +148,18 @@ export class SigNozExporter {
     if ((logEntry as any).correlationId) attrs.push({ key: 'correlation.id', value: { stringValue: (logEntry as any).correlationId } });
     if ((logEntry as any).userId)        attrs.push({ key: 'user.id', value: { stringValue: (logEntry as any).userId } });
 
-    // HTTP básicos
-    const method = (logEntry as any)?.request?.method || (logEntry as any)?.method;
-    const urlPath = (logEntry as any)?.url || (logEntry as any)?.request?.url;
-    const statusCode = (logEntry as any)?.statusCode ?? (logEntry as any)?.response?.statusCode;
-    const respSize = (logEntry as any)?.response?.size;
+    // HTTP básicos - COM DEBUG
+    const method = (logEntry as any)?.context?.request?.method;
+    const urlPath = (logEntry as any)?.context?.request?.url;
+    const statusCode = (logEntry as any)?.context?.response?.statusCode;
+    const respSize = (logEntry as any)?.context?.response?.responseSize;
+
+    console.log('🔍 DEBUG HTTP Attributes:');
+    console.log('method:', method);
+    console.log('urlPath:', urlPath);
+    console.log('statusCode:', statusCode);
+    console.log('respSize:', respSize);
+    console.log('logEntry structure:', JSON.stringify(logEntry, null, 2));
 
     if (method) attrs.push({ key: 'http.method', value: { stringValue: String(method) } });
     if (urlPath) attrs.push({ key: 'url.path', value: { stringValue: String(urlPath) } });
@@ -146,15 +169,24 @@ export class SigNozExporter {
       attrs.push({ key: 'duration_ms', value: { intValue: Math.round(effectiveDurationMs) } });
     }
 
+    // User Agent e IP
+    const userAgent = (logEntry as any)?.context?.request?.userAgent;
+    const ip = (logEntry as any)?.context?.request?.ip;
+
+    if (userAgent) attrs.push({ key: 'user.agent', value: { stringValue: String(userAgent) } });
+    if (ip) attrs.push({ key: 'client.ip', value: { stringValue: String(ip) } });
+
     // Message pinável
     if ((logEntry as any).message) {
       attrs.push({ key: 'message', value: { stringValue: String((logEntry as any).message) } });
     }
 
     // Somente primitivos/arrays de primitivos do context viram attributes
+    // Excluir traceId e spanId para evitar duplicação (já estão no topo do logRecord)
+    const excludedFields = ['traceId', 'spanId', 'trace_id', 'span_id'];
     if ((logEntry as any).context && typeof (logEntry as any).context === 'object') {
       for (const [k, v] of Object.entries((logEntry as any).context)) {
-        if (this.isPrimitiveOrArrayOfPrimitives(v)) {
+        if (!excludedFields.includes(k) && this.isPrimitiveOrArrayOfPrimitives(v)) {
           // normaliza chaves duplicadas que chegam como snake_case
           const key = k === 'request_id' ? 'request.id' : k;
           attrs.push({ key, value: this.toAnyValue(v) });
@@ -181,8 +213,8 @@ export class SigNozExporter {
       : new Date(String((logEntry as any).timestamp ?? Date.now())).toISOString();
 
     const obj: Record<string, any> = {
-      ip: (logEntry as any).ip,
-      userAgent: (logEntry as any).userAgent,
+      ip: (logEntry as any).request?.ip,
+      userAgent: (logEntry as any).request?.userAgent,
       timestamp: utcIso,
     };
 

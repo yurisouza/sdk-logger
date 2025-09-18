@@ -68,3 +68,4 @@ jobs:
             echo "❌ High-severity vulnerabilities found"
             exit 1
           fi
+

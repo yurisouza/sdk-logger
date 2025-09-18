@@ -110,3 +110,4 @@ print_message "Próximos passos:"
 print_message "1. Acompanhe o workflow no GitHub Actions"
 print_message "2. Verifique se o pacote foi publicado: npm view @psouza.yuri/sdk-logger@$NEW_VERSION"
 print_message "3. Atualize a documentação se necessário"
+

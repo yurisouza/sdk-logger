@@ -1,15 +1,39 @@
 import winston, { format } from 'winston';
-import { LogLevel, LogEntry, LoggerConfig, LogContext, TracedLoggerContext } from '../types';
-import { SigNozTransport } from '../transport/signoz-transport';
+import Transport from 'winston-transport';
+import { LogLevel, LoggerConfig } from '../types';
+import { SigNozExporter } from '../exporters/signoz-exporter';
+
+class SigNozWinstonTransport extends Transport {
+  private exporter: SigNozExporter;
+
+  constructor(exporter: SigNozExporter) {
+    super();
+    this.exporter = exporter;
+  }
+
+  log(info: any, callback: () => void) {
+    console.log('🔍 SigNozWinstonTransport log chamado:', info.message);
+    
+    this.exporter.exportLog(info)
+      .then(() => {
+        console.log('✅ Log enviado para SigNoz com sucesso');
+        callback();
+      })
+      .catch((error) => {
+        console.warn('❌ Erro ao enviar log para SigNoz:', error);
+        callback();
+      });
+  }
+}
 
 export class Logger {
   protected winston: winston.Logger;
   protected config: LoggerConfig;
-  protected additionalContext?: TracedLoggerContext;
+  private signozExporter: SigNozExporter;
 
-  constructor(config: LoggerConfig, additionalContext?: TracedLoggerContext) {
+  constructor(config: LoggerConfig) {
     this.config = config;
-    this.additionalContext = additionalContext;
+    this.signozExporter = new SigNozExporter(config);
     this.winston = this.createWinstonLogger();
   }
 
@@ -30,179 +54,75 @@ export class Logger {
       );
     }
 
-    // File transport
-    if (this.config.enableFile) {
-      transports.push(
-        new winston.transports.File({
-          filename: this.config.filePath || 'logs/application.log',
-          level: this.config.logLevel || LogLevel.INFO,
-          maxsize: this.parseFileSize(this.config.maxFileSize || '128m'), // 128MB por padrão
-          maxFiles: 1, // Apenas 1 arquivo (sobrescrever)
-          format: winston.format.combine(
-            winston.format.timestamp(),
-            winston.format.json()
-          ),
-        })
-      );
-    }
-
-    // SigNoz transport
-    if (this.config.signoz.enableLogs !== false) {
-      transports.push(new SigNozTransport({
-        signoz: this.config.signoz,
-      }));
-    }
+    // SigNoz transport personalizado
+    transports.push(new SigNozWinstonTransport(this.signozExporter));
 
     return winston.createLogger({
       level: this.config.logLevel || LogLevel.INFO,
-      format: winston.format.combine(
-        winston.format.timestamp(),
-        winston.format.errors({ stack: true }),
-        winston.format.json()
-      ),
       transports,
     });
   }
 
-  private parseFileSize(size: string): number {
+  private parseFileSize(sizeStr: string): number {
     const units: { [key: string]: number } = {
-      b: 1,
-      k: 1024,
-      m: 1024 * 1024,
-      g: 1024 * 1024 * 1024,
+      'b': 1,
+      'kb': 1024,
+      'mb': 1024 * 1024,
+      'gb': 1024 * 1024 * 1024,
     };
-    
-    const match = size.match(/^(\d+)([bkmg])$/i);
-    if (!match) return 128 * 1024 * 1024; // Default 128MB
-    
-    const [, value, unit] = match;
-    return parseInt(value) * units[unit.toLowerCase()];
+
+    const match = sizeStr.toLowerCase().match(/^(\d+(?:\.\d+)?)\s*(b|kb|mb|gb)?$/);
+    if (!match) return 128 * 1024 * 1024; // 128MB padrão
+
+    const value = parseFloat(match[1]);
+    const unit = match[2] || 'mb';
+    return Math.floor(value * (units[unit] || units['mb']));
   }
 
-  protected createLogEntry(
-    level: LogLevel,
-    message: string,
-    context?: LogContext
-  ): LogEntry {
-    const baseContext = {
-      ...this.additionalContext?.context,
-      ...context,
-    };
-
-    return {
+  private createLogEntry(level: LogLevel, message: string, context?: any): any {
+    const entry: any = {
       level,
       message,
       timestamp: new Date(),
-      context: Object.keys(baseContext).length > 0 ? baseContext : undefined,
-      service: this.config.signoz.serviceName,
-      version: this.config.signoz.serviceVersion,
-      environment: this.config.signoz.environment,
-      traceId: this.additionalContext?.traceId,
-      spanId: this.additionalContext?.spanId,
-      userId: this.additionalContext?.userId,
-      requestId: this.additionalContext?.requestId,
-      correlationId: this.additionalContext?.correlationId,
+      service: this.config.serviceName,
+      version: this.config.serviceVersion,
+      environment: this.config.environment,
     };
-  }
 
-  error(message: string, context?: LogContext): void {
-    const logEntry = this.createLogEntry(LogLevel.ERROR, message, context);
-    this.winston.error(logEntry);
-  }
-
-  warn(message: string, context?: LogContext): void {
-    const logEntry = this.createLogEntry(LogLevel.WARN, message, context);
-    this.winston.warn(logEntry);
-  }
-
-  info(message: string, context?: LogContext): void {
-    const logEntry = this.createLogEntry(LogLevel.INFO, message, context);
-    this.winston.info(logEntry);
-  }
-
-  debug(message: string, context?: LogContext): void {
-    const logEntry = this.createLogEntry(LogLevel.DEBUG, message, context);
-    this.winston.debug(logEntry);
-  }
-
-  trace(message: string, context?: LogContext): void {
-    const logEntry = this.createLogEntry(LogLevel.TRACE, message, context);
-    this.winston.silly(logEntry);
-  }
-
-  // Métodos para adicionar contexto de rastreamento
-  withTraceId(traceId: string): Logger {
-    return new Logger(this.config, {
-      ...this.additionalContext,
-      traceId,
-    });
-  }
-
-  withSpanId(spanId: string): Logger {
-    return new Logger(this.config, {
-      ...this.additionalContext,
-      spanId,
-    });
-  }
-
-  withUserId(userId: string): Logger {
-    return new Logger(this.config, {
-      ...this.additionalContext,
-      userId,
-    });
-  }
-
-  withRequestId(requestId: string): Logger {
-    return new Logger(this.config, {
-      ...this.additionalContext,
-      requestId,
-    });
-  }
-
-  withCorrelationId(correlationId: string): Logger {
-    return new Logger(this.config, {
-      ...this.additionalContext,
-      correlationId,
-    });
-  }
-
-  withContext(context: LogContext): Logger {
-    return new Logger(this.config, {
-      ...this.additionalContext,
-      context: {
-        ...this.additionalContext?.context,
-        ...context,
-      },
-    });
-  }
-
-  // Método para criar child logger com contexto persistente
-  child(defaultContext: LogContext): Logger {
-    return new Logger(this.config, {
-      ...this.additionalContext,
-      context: {
-        ...this.additionalContext?.context,
-        ...defaultContext,
-      },
-    });
-  }
-
-  // Método para enviar logs para SigNoz manualmente
-  async sendToSigNoz(logEntry: LogEntry): Promise<void> {
-    if (this.config.signoz.enableLogs !== false) {
-      const signozTransport = new SigNozTransport({
-        signoz: this.config.signoz,
-      });
-      
-      return new Promise((resolve, reject) => {
-        signozTransport.log(logEntry, () => {
-          resolve();
-        });
-      });
+    if (context) {
+      entry.context = context;
     }
+
+    return entry;
   }
 
-  async shutdown(): Promise<void> {
-    await this.winston.close();
+  private log(level: LogLevel, message: string, context?: any): void {
+    const logEntry = this.createLogEntry(level, message, context);
+    this.winston.log(level, logEntry);
+  }
+
+  info(message: string, context?: any): void {
+    this.log(LogLevel.INFO, message, context);
+  }
+
+  warn(message: string, context?: any): void {
+    this.log(LogLevel.WARN, message, context);
+  }
+
+  error(message: string, context?: any): void {
+    this.log(LogLevel.ERROR, message, context);
+  }
+
+  debug(message: string, context?: any): void {
+    this.log(LogLevel.DEBUG, message, context);
+  }
+
+  // Método para logging com contexto de trace
+  logWithTrace(level: LogLevel, message: string, traceContext?: any, additionalContext?: any): void {
+    const context = {
+      ...traceContext,
+      ...additionalContext,
+    };
+    this.log(level, message, context);
   }
 }

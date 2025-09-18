@@ -110,3 +110,4 @@ Edite o template em `.github/workflows/publish-npm.yml` na seção `Create GitHu
 - [GitHub Actions Documentation](https://docs.github.com/en/actions)
 - [NPM Publishing Guide](https://docs.npmjs.com/packages-and-modules/contributing-packages-to-the-registry)
 - [Semantic Versioning](https://semver.org/)
+
