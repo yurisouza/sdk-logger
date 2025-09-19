@@ -1,6 +1,6 @@
 {
   "name": "@psouza.yuri/sdk-logger",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "SDK para logs padronizados com integração automática ao SigNoz Cloud - captura automaticamente todos os requests e responses da API",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
