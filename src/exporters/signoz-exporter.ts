@@ -3,9 +3,11 @@ import axios from 'axios';
 
 export class SigNozExporter {
   private config: SigNozConfig;
+  private maxLogSize: number;
 
   constructor(config: SigNozConfig) {
     this.config = config;
+    this.maxLogSize = 1024 * 1024; // 1MB para logs
   }
 
   private parseDurationMs(raw: any): number | undefined {
@@ -21,11 +23,44 @@ export class SigNozExporter {
     return undefined;
   }
 
+  private calculateDataSize(data: any): number {
+    if (!data) return 0;
+    
+    try {
+      return JSON.stringify(data).length;
+    } catch {
+      return 0;
+    }
+  }
+
+  private truncateLargeData(data: any, maxSize: number): any {
+    if (!data) return data;
+    
+    const size = this.calculateDataSize(data);
+    if (size <= maxSize) return data;
+    
+    return {
+      '[TRUNCATED]': `Dados muito grandes (${size} bytes). Tamanho máximo: ${maxSize} bytes`,
+      '[ORIGINAL_SIZE]': size,
+      '[TRUNCATED_AT]': new Date().toISOString()
+    };
+  }
+
   async exportLog(logEntry: LogEntry): Promise<void> {
     try {
       // Validação básica do logEntry
       if (!logEntry || typeof logEntry !== 'object') {
         return;
+      }
+
+      // Verificar tamanho do log antes de processar
+      const logSize = this.calculateDataSize(logEntry);
+      if (logSize > this.maxLogSize) {
+        console.warn(`[SigNozExporter] Log muito grande (${logSize} bytes). Tamanho máximo: ${this.maxLogSize} bytes`);
+        
+        // Truncar dados grandes
+        const truncatedLog = this.truncateLargeData(logEntry, this.maxLogSize);
+        logEntry = truncatedLog as LogEntry;
       }
 
       // Validação do timestamp

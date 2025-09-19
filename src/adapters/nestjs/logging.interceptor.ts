@@ -9,6 +9,8 @@ import { getSpanDuration, spanDurations } from './span-duration-tracker';
 @Injectable()
 export class LoggingInterceptor implements NestInterceptor {
   private logger: Logger;
+  private maxBodySize: number;
+  private maxHeadersSize: number;
 
   constructor(config: SigNozConfig) {
     // Configuração do logger
@@ -19,6 +21,10 @@ export class LoggingInterceptor implements NestInterceptor {
     };
 
     this.logger = new Logger(loggerConfig);
+    
+    // Limites de tamanho para evitar quebra da API
+    this.maxBodySize = 1024 * 1024; // 1MB para body
+    this.maxHeadersSize = 64 * 1024; // 64KB para headers
   }
 
   intercept(context: ExecutionContext, next: CallHandler): Observable<any> {
@@ -37,6 +43,43 @@ export class LoggingInterceptor implements NestInterceptor {
       }
       
       const { method, url, headers, body } = request;
+      
+      // Verificar tamanho dos dados antes de processar
+      const bodySize = this.calculateDataSize(body);
+      const headersSize = this.calculateDataSize(headers);
+      
+      if (bodySize > this.maxBodySize || headersSize > this.maxHeadersSize) {
+        // Log de aviso para dados muito grandes
+        console.warn(`[LoggingInterceptor] Dados muito grandes detectados - Body: ${bodySize} bytes, Headers: ${headersSize} bytes`);
+        
+        // Continuar com a requisição mas com dados truncados
+        const userAgent = headers?.['user-agent'] || '';
+        const ip = headers?.['x-user-ip'] || request.ip || request.connection?.remoteAddress || 'unknown';
+        
+        // Gerar IDs únicos para rastreamento
+        const requestId = this.generateRequestId();
+        const userId = this.extractUserId(request);
+        
+        // Log simplificado para dados grandes
+        this.logger.warn(`${method} ${url} - Dados muito grandes (Body: ${bodySize} bytes, Headers: ${headersSize} bytes)`, {
+          request: {
+            method,
+            url,
+            userAgent,
+            ip,
+            requestId,
+            userId,
+            body: bodySize > this.maxBodySize ? '[TRUNCATED - TOO LARGE]' : body,
+            headers: headersSize > this.maxHeadersSize ? '[TRUNCATED - TOO LARGE]' : headers,
+          },
+          performance: {
+            durationMs: 0, // Não medimos duração para dados grandes
+          }
+        });
+        
+        return next.handle();
+      }
+      
       const userAgent = headers?.['user-agent'] || '';
       const ip = headers?.['x-user-ip'] || request.ip || request.connection?.remoteAddress || 'unknown';
       
@@ -217,6 +260,15 @@ export class LoggingInterceptor implements NestInterceptor {
   private sanitizeBody(body: any): any {
     if (!body) return null;
     
+    // Verificar tamanho do body
+    const bodySize = this.calculateDataSize(body);
+    if (bodySize > this.maxBodySize) {
+      return {
+        '[TRUNCATED]': `Body muito grande (${bodySize} bytes). Tamanho máximo: ${this.maxBodySize} bytes`,
+        '[ORIGINAL_SIZE]': bodySize
+      };
+    }
+    
     // Remover campos sensíveis
     const sensitiveFields = ['password', 'token', 'secret', 'key'];
     const sanitized = { ...body };
@@ -233,6 +285,15 @@ export class LoggingInterceptor implements NestInterceptor {
   private sanitizeHeaders(headers: any): any {
     if (!headers) return {};
     
+    // Verificar tamanho dos headers
+    const headersSize = this.calculateDataSize(headers);
+    if (headersSize > this.maxHeadersSize) {
+      return {
+        '[TRUNCATED]': `Headers muito grandes (${headersSize} bytes). Tamanho máximo: ${this.maxHeadersSize} bytes`,
+        '[ORIGINAL_SIZE]': headersSize
+      };
+    }
+    
     // Remover headers sensíveis
     const sensitiveHeaders = ['authorization', 'cookie', 'x-api-key', 'x-auth-token'];
     const sanitized = { ...headers };
@@ -244,6 +305,16 @@ export class LoggingInterceptor implements NestInterceptor {
     }
     
     return sanitized;
+  }
+
+  private calculateDataSize(data: any): number {
+    if (!data) return 0;
+    
+    try {
+      return JSON.stringify(data).length;
+    } catch {
+      return 0;
+    }
   }
 
   private calculateResponseSize(data: any): number {
