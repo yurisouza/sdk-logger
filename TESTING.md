@@ -219,3 +219,4 @@ Estes testes garantem que a SDK Logger é:
 - **Confiável**: Pronta para produção
 
 Execute os testes regularmente para garantir a qualidade da SDK! 🚀
+

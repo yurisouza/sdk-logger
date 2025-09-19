@@ -5,13 +5,6 @@ export enum LogLevel {
   DEBUG = 'debug'
 }
 
-export interface LogEntry {
-  level: LogLevel;
-  message: string;
-  timestamp: Date;
-  [key: string]: any;
-}
-
 export interface SigNozConfig {
   endpoint: string;
   apiKey: string;

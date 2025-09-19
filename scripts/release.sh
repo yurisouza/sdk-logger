@@ -112,3 +112,4 @@ print_message "2. Verifique se o pacote foi publicado: npm view @psouza.yuri/sdk
 print_message "3. Atualize a documentação se necessário"
 
 
+
