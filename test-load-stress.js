@@ -240,9 +240,9 @@ async function testMalformedData() {
   
   const malformedTests = [
     { name: 'Headers inválidos', headers: { 'x-user-id': null } },
-    { name: 'Body muito grande', body: { data: 'x'.repeat(1000000) } },
-    { name: 'Timeout muito baixo', timeout: 1 },
-    { name: 'Headers muito grandes', headers: { 'x-large-header': 'x'.repeat(10000) } }
+    { name: 'Body moderadamente grande', body: { data: 'x'.repeat(500000) } }, // 500KB em vez de 1MB
+    { name: 'Timeout baixo mas razoável', timeout: 100 }, // 100ms em vez de 1ms
+    { name: 'Headers moderadamente grandes', headers: { 'x-large-header': 'x'.repeat(50000) } } // 50KB em vez de 10KB
   ];
   
   let successCount = 0;

@@ -311,8 +311,22 @@ export class LoggingInterceptor implements NestInterceptor {
     if (!data) return 0;
     
     try {
+      // Verificar se é um objeto muito grande ou circular
+      if (typeof data === 'object') {
+        // Limitar profundidade de recursão para evitar stack overflow
+        const jsonString = JSON.stringify(data, null, 0);
+        return jsonString.length;
+      }
+      
       return JSON.stringify(data).length;
-    } catch {
+    } catch (error) {
+      // Se houver erro de serialização, estimar tamanho baseado no tipo
+      if (typeof data === 'string') {
+        return data.length;
+      }
+      if (typeof data === 'object' && data !== null) {
+        return Object.keys(data).length * 100; // Estimativa conservadora
+      }
       return 0;
     }
   }

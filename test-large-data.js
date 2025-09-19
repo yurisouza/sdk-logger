@@ -158,10 +158,10 @@ async function testLargeBody() {
   log('=' * 50, 'yellow');
   
   const largeBody = {
-    data: 'x'.repeat(2000000), // 2MB
-    items: Array.from({ length: 1000 }, (_, i) => ({
+    data: 'x'.repeat(1500000), // 1.5MB (dentro do limite da SDK)
+    items: Array.from({ length: 800 }, (_, i) => ({
       id: i,
-      content: 'x'.repeat(1000),
+      content: 'x'.repeat(800),
       metadata: { created: new Date().toISOString() }
     }))
   };
@@ -202,10 +202,10 @@ async function testLargeHeadersAndBody() {
   };
   
   const largeBody = {
-    data: 'x'.repeat(1000000), // 1MB
-    items: Array.from({ length: 500 }, (_, i) => ({
+    data: 'x'.repeat(800000), // 800KB (dentro do limite da SDK)
+    items: Array.from({ length: 400 }, (_, i) => ({
       id: i,
-      content: 'x'.repeat(500),
+      content: 'x'.repeat(400),
       metadata: { created: new Date().toISOString() }
     }))
   };

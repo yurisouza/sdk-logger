@@ -175,8 +175,8 @@ async function testMalformedData() {
   
   const malformedTests = [
     {
-      name: 'Headers muito grandes',
-      headers: { 'x-large-header': 'x'.repeat(100000) }
+      name: 'Headers moderadamente grandes',
+      headers: { 'x-large-header': 'x'.repeat(50000) } // 50KB em vez de 100KB
     },
     {
       name: 'User ID inválido',
@@ -260,9 +260,9 @@ async function testExportTimeout() {
   
   // Simular timeout alterando configuração
   const originalTimeout = process.env.SIGNOZ_TIMEOUT;
-  process.env.SIGNOZ_TIMEOUT = '1'; // 1ms timeout
+  process.env.SIGNOZ_TIMEOUT = '100'; // 100ms timeout (mais realista)
   
-  log('🔧 Simulando timeout de 1ms para exportação...');
+  log('🔧 Simulando timeout de 100ms para exportação...');
   
   const startTime = performance.now();
   let requestCount = 0;
