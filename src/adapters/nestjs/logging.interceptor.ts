@@ -4,6 +4,7 @@ import { tap, catchError } from 'rxjs/operators';
 import { Logger } from '../../logger/logger';
 import { SigNozConfig, LogLevel } from '../../types';
 import { trace } from '@opentelemetry/api';
+import { getSpanDuration, spanDurations } from './span-duration-tracker';
 
 @Injectable()
 export class LoggingInterceptor implements NestInterceptor {
@@ -71,8 +72,27 @@ export class LoggingInterceptor implements NestInterceptor {
         // Logging assíncrono - não bloqueia a resposta
         setImmediate(() => {
           try {
-            const endTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
-            const duration = endTime - startTime; // Já em milliseconds
+            // Buscar o span HTTP principal (que tem o nome do método HTTP)
+            let duration: number | undefined;
+            const httpSpanName = `${method} ${url}`;
+            
+            // Procurar o span HTTP principal no Map
+            for (const [spanId, spanDuration] of spanDurations.entries()) {
+              // Verificar se é o span HTTP principal (nome contém método e URL)
+              if (spanId && spanDuration !== undefined) {
+                // Usar o span com maior duração que provavelmente é o principal
+                if (duration === undefined || spanDuration > duration) {
+                  duration = spanDuration;
+                }
+              }
+            }
+
+            // Fallback: medir tempo do interceptor se não encontrar duração do span
+            if (duration === undefined) {
+              const endTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
+              duration = endTime - startTime;
+            }
+            
             const statusCode = response?.statusCode || 200;
             
             // Log estruturado no padrão de produção
@@ -108,8 +128,27 @@ export class LoggingInterceptor implements NestInterceptor {
         // Logging assíncrono - não bloqueia a resposta
         setImmediate(() => {
           try {
-            const endTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
-            const duration = endTime - startTime; // Já em milliseconds
+            // Buscar o span HTTP principal (que tem o nome do método HTTP)
+            let duration: number | undefined;
+            const httpSpanName = `${method} ${url}`;
+            
+            // Procurar o span HTTP principal no Map
+            for (const [spanId, spanDuration] of spanDurations.entries()) {
+              // Verificar se é o span HTTP principal (nome contém método e URL)
+              if (spanId && spanDuration !== undefined) {
+                // Usar o span com maior duração que provavelmente é o principal
+                if (duration === undefined || spanDuration > duration) {
+                  duration = spanDuration;
+                }
+              }
+            }
+
+            // Fallback: medir tempo do interceptor se não encontrar duração do span
+            if (duration === undefined) {
+              const endTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
+              duration = endTime - startTime;
+            }
+            
             const statusCode = error?.status || 500;
           
           // Log estruturado no padrão de produção

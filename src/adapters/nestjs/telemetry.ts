@@ -4,7 +4,8 @@ import { resourceFromAttributes } from '@opentelemetry/resources';
 import { SemanticResourceAttributes } from '@opentelemetry/semantic-conventions';
 import { diag, DiagConsoleLogger, DiagLogLevel } from '@opentelemetry/api';
 import { getNodeAutoInstrumentations } from '@opentelemetry/auto-instrumentations-node';
-import { ParentBasedSampler, TraceIdRatioBasedSampler } from '@opentelemetry/sdk-trace-base';
+import { ParentBasedSampler, TraceIdRatioBasedSampler, BatchSpanProcessor } from '@opentelemetry/sdk-trace-base';
+import { SpanDurationTracker } from './span-duration-tracker';
 import { ExpressLayerType } from '@opentelemetry/instrumentation-express';
 import { SigNozConfig } from '../../types';
 import { AsyncLocalStorageContextManager } from '@opentelemetry/context-async-hooks';
@@ -125,6 +126,10 @@ export function setupTelemetry(
       '@opentelemetry/instrumentation-winston': { enabled: false },
     });
 
+    // Criar span processors
+    const spanDurationTracker = new SpanDurationTracker();
+    const batchProcessor = new BatchSpanProcessor(traceExporter);
+
     sdk = new NodeSDK({
       resource: resourceFromAttributes({
         [SemanticResourceAttributes.SERVICE_NAME]: config.serviceName,
@@ -134,6 +139,7 @@ export function setupTelemetry(
       traceExporter,
       sampler,
       instrumentations,
+      spanProcessors: [spanDurationTracker, batchProcessor],
       contextManager: new AsyncLocalStorageContextManager(),
       textMapPropagator: new CompositePropagator({
         propagators: [

@@ -69,3 +69,4 @@ export function setupLogging() { }
 6. **Use nomes descritivos** que expliquem o propósito
 7. **Evite abreviações** desnecessárias
 8. **Mantenha camelCase** apenas para métodos de classes
+
