@@ -63,16 +63,20 @@ export class LoggingInterceptor implements NestInterceptor {
         spanId = this.generateHexId(16);
       }
       
-      const startTime = Date.now();
+      // Usar performance.now() para sincronizar com OpenTelemetry
+      const startTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
     
     return next.handle().pipe(
       tap((data) => {
-        try {
-          const duration = Date.now() - startTime;
-          const statusCode = response?.statusCode || 200;
-          
-          // Log estruturado no padrão de produção
-          this.logger.info(`${method} ${url} (${duration}ms)`, {
+        // Logging assíncrono - não bloqueia a resposta
+        setImmediate(() => {
+          try {
+            const endTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
+            const duration = endTime - startTime; // Já em milliseconds
+            const statusCode = response?.statusCode || 200;
+            
+            // Log estruturado no padrão de produção
+            this.logger.info(`${method} ${url} (${duration}ms)`, {
             request: {
               method,
               url,
@@ -95,14 +99,18 @@ export class LoggingInterceptor implements NestInterceptor {
             traceId,
             spanId,
           });
-        } catch (logError) {
-          // Erro silencioso - não quebra a aplicação
-        }
+          } catch (logError) {
+            // Erro silencioso - não quebra a aplicação
+          }
+        });
       }),
       catchError((error) => {
-        try {
-          const duration = Date.now() - startTime;
-          const statusCode = error?.status || 500;
+        // Logging assíncrono - não bloqueia a resposta
+        setImmediate(() => {
+          try {
+            const endTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
+            const duration = endTime - startTime; // Já em milliseconds
+            const statusCode = error?.status || 500;
           
           // Log estruturado no padrão de produção
           this.logger.error(`${method} ${url} (${duration}ms)`, {
@@ -127,9 +135,10 @@ export class LoggingInterceptor implements NestInterceptor {
             traceId,
             spanId,
           });
-        } catch (logError) {
-          // Erro silencioso - não quebra a aplicação
-        }
+          } catch (logError) {
+            // Erro silencioso - não quebra a aplicação
+          }
+        });
         
         throw error;
       })

@@ -58,14 +58,34 @@ export function setupTelemetry(
 
     // Auto-instrumentations sem filtros para validação
     const instrumentations = getNodeAutoInstrumentations({
-      // HTTP (SERVER) — sem filtros
+      // HTTP (SERVER) — com configuração para tempo correto
       '@opentelemetry/instrumentation-http': {
-        enabled: true
+        enabled: true,
+        // Ignorar chamadas internas para SigNoz (evita spans desnecessários)
+        ignoreOutgoingRequestHook: (opts) => {
+          const host = (opts as any)?.hostname || (opts as any)?.host || '';
+          return /signoz|ingest\.(us|eu|in)\.signoz\.cloud/i.test(host);
+        },
+        requestHook: (span, request) => {
+          // Garantir que o span tenha o nome correto
+          const method = (request as any)?.method || 'GET';
+          const url = (request as any)?.url || (request as any)?.path || '/';
+          span.updateName(`${method} ${url}`);
+        },
+        responseHook: (span, response) => {
+          // Adicionar status code
+          const statusCode = (response as any)?.statusCode;
+          if (statusCode) {
+            span.setAttribute('http.status_code', statusCode);
+          }
+        }
       },
 
-      // EXPRESS — habilitado
+      // EXPRESS — habilitado para capturar spans de middleware
       '@opentelemetry/instrumentation-express': {
-        enabled: true
+        enabled: true,
+        // Configuração para capturar spans de middleware sem conflitos
+        ignoreLayersType: [] // Capturar todos os tipos de middleware
       },
 
       // NestJS — habilitado
