@@ -1,0 +1,96 @@
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+      grpc:
+        endpoint: 0.0.0.0:4317
+
+processors:
+  # Processador de memória para evitar vazamentos
+  memory_limiter:
+    limit_mib: 512
+    spike_limit_mib: 128
+    check_interval: 5s
+
+  # Processador de atributos para otimizar dados
+  attributes:
+    actions:
+      - key: "http.user_agent"
+        action: "delete"       # Remove user agent (reduz tamanho)
+      - key: "http.request.body"
+        action: "delete"       # Remove body de requests (reduz tamanho)
+      - key: "http.response.body"
+        action: "delete"       # Remove body de responses (reduz tamanho)
+      - key: "http.url"
+        action: "delete"       # Remove URL completa (reduz tamanho)
+
+  # Processadores de batch otimizados por tipo de dados
+  batch/logs:
+    send_batch_size: 1024      # Menor para logs (mais rápido)
+    timeout: 1s                # Timeout menor para logs
+    send_batch_max_size: 2048  # Tamanho máximo do batch
+    metadata_keys: []          # Sem metadados extras
+
+  batch/traces:
+    send_batch_size: 512       # Menor para traces
+    timeout: 2s                # Timeout médio para traces
+    send_batch_max_size: 1024
+
+  batch/metrics:
+    send_batch_size: 2048      # Maior para métricas (menos frequentes)
+    timeout: 5s                # Timeout maior para métricas
+    send_batch_max_size: 4096
+
+exporters:
+  # Debug apenas para desenvolvimento
+  debug:
+    verbosity: basic
+
+  # SigNoz Cloud otimizado - usando variáveis de ambiente
+  otlphttp/signoz:
+    endpoint: ${SIGNOZ_ENDPOINT}
+    headers:
+      signoz-ingestion-key: ${SIGNOZ_INGESTION_KEY}
+    compression: gzip
+    timeout: 10s               # Timeout menor para falhas mais rápidas
+    retry_on_failure:
+      enabled: true
+      initial_interval: 1s     # Intervalo inicial menor
+      max_interval: 5s         # Intervalo máximo menor
+      max_elapsed_time: 30s    # Tempo máximo menor
+    sending_queue:
+      enabled: true
+      num_consumers: 4         # Mais consumidores para paralelização
+      queue_size: 1000         # Fila menor para evitar acúmulo
+
+extensions:
+  pprof:
+  zpages:
+
+service:
+  telemetry:
+    logs:
+      level: warn              # Menos logs = mais performance
+
+  # Extensões para monitoramento
+  extensions: [pprof, zpages]
+
+  pipelines:
+    # Pipeline de logs otimizado
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, attributes, batch/logs]
+      exporters: [otlphttp/signoz, debug]
+
+    # Pipeline de traces otimizado
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, attributes, batch/traces]
+      exporters: [otlphttp/signoz, debug]
+
+    # Pipeline de métricas otimizado
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, batch/metrics]
+      exporters: [otlphttp/signoz, debug]

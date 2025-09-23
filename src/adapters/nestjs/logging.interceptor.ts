@@ -2,7 +2,7 @@ import { Injectable, NestInterceptor, ExecutionContext, CallHandler } from '@nes
 import { Observable } from 'rxjs';
 import { tap, catchError } from 'rxjs/operators';
 import { Logger } from '../../logger/logger';
-import { SigNozConfig, LogLevel } from '../../types';
+import { LoggerConfig, LogLevel } from '../../types';
 import { trace } from '@opentelemetry/api';
 import { getSpanDuration, spanDurations } from './span-duration-tracker';
 
@@ -12,12 +12,12 @@ export class LoggingInterceptor implements NestInterceptor {
   private maxBodySize: number;
   private maxHeadersSize: number;
 
-  constructor(config: SigNozConfig) {
+  constructor(config: LoggerConfig) {
     // Configuração do logger
     const loggerConfig = {
       ...config,
-      logLevel: LogLevel.INFO,
-      enableConsole: true,
+      logLevel: config.minLogLevel || LogLevel.INFO,
+      // Usar enableConsole da config original
     };
 
     this.logger = new Logger(loggerConfig);
@@ -115,17 +115,29 @@ export class LoggingInterceptor implements NestInterceptor {
         // Logging assíncrono - não bloqueia a resposta
         setImmediate(() => {
           try {
-            // Buscar o span HTTP principal (que tem o nome do método HTTP)
+            // Tentar obter duração do span ativo primeiro
             let duration: number | undefined;
-            const httpSpanName = `${method} ${url}`;
             
-            // Procurar o span HTTP principal no Map
-            for (const [spanId, spanDuration] of spanDurations.entries()) {
-              // Verificar se é o span HTTP principal (nome contém método e URL)
-              if (spanId && spanDuration !== undefined) {
-                // Usar o span com maior duração que provavelmente é o principal
-                if (duration === undefined || spanDuration > duration) {
-                  duration = spanDuration;
+            try {
+              const activeSpan = trace.getActiveSpan();
+              if (activeSpan) {
+                const spanContext = activeSpan.spanContext();
+                // Buscar duração do span ativo no Map
+                duration = getSpanDuration(spanContext.spanId);
+              }
+            } catch (spanError) {
+              // Ignorar erro de span
+            }
+
+            // Se não encontrou duração do span ativo, buscar no Map
+            if (duration === undefined) {
+              // Procurar o span HTTP principal no Map
+              for (const [spanId, spanDuration] of spanDurations.entries()) {
+                if (spanId && spanDuration !== undefined) {
+                  // Usar o span com maior duração que provavelmente é o principal
+                  if (duration === undefined || spanDuration > duration) {
+                    duration = spanDuration;
+                  }
                 }
               }
             }
@@ -171,17 +183,29 @@ export class LoggingInterceptor implements NestInterceptor {
         // Logging assíncrono - não bloqueia a resposta
         setImmediate(() => {
           try {
-            // Buscar o span HTTP principal (que tem o nome do método HTTP)
+            // Tentar obter duração do span ativo primeiro
             let duration: number | undefined;
-            const httpSpanName = `${method} ${url}`;
             
-            // Procurar o span HTTP principal no Map
-            for (const [spanId, spanDuration] of spanDurations.entries()) {
-              // Verificar se é o span HTTP principal (nome contém método e URL)
-              if (spanId && spanDuration !== undefined) {
-                // Usar o span com maior duração que provavelmente é o principal
-                if (duration === undefined || spanDuration > duration) {
-                  duration = spanDuration;
+            try {
+              const activeSpan = trace.getActiveSpan();
+              if (activeSpan) {
+                const spanContext = activeSpan.spanContext();
+                // Buscar duração do span ativo no Map
+                duration = getSpanDuration(spanContext.spanId);
+              }
+            } catch (spanError) {
+              // Ignorar erro de span
+            }
+
+            // Se não encontrou duração do span ativo, buscar no Map
+            if (duration === undefined) {
+              // Procurar o span HTTP principal no Map
+              for (const [spanId, spanDuration] of spanDurations.entries()) {
+                if (spanId && spanDuration !== undefined) {
+                  // Usar o span com maior duração que provavelmente é o principal
+                  if (duration === undefined || spanDuration > duration) {
+                    duration = spanDuration;
+                  }
                 }
               }
             }

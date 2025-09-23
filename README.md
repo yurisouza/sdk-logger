@@ -1,6 +1,6 @@
-# 🚀 SDK Logger SigNoz
+# 🚀 SDK Logger
 
-SDK para padronização de logs e integração automática com SigNoz Cloud, capturando automaticamente todos os requests e responses da API.
+SDK para padronização de logs e integração automática com OpenTelemetry Collector, capturando automaticamente todos os requests e responses da API.
 
 ## ⚡ Instalação Rápida
 
@@ -13,87 +13,221 @@ npm install @psouza.yuri/sdk-logger
 - ✅ **Logs Estruturados**: Logs em formato JSON com contexto rico
 - ✅ **Tracing Distribuído**: Rastreamento completo de requisições
 - ✅ **Integração Automática**: Interceptors para NestJS
-- ✅ **SigNoz Cloud**: Envio automático para SigNoz
+- ✅ **Exportador Collector**: Integração com OpenTelemetry Collector
 - ✅ **Contexto de Usuário**: Rastreamento por usuário e sessão
 - ✅ **Performance**: Logs assíncronos e otimizados
+- ✅ **Nível Mínimo de Log**: Controle granular de quais logs são processados
+- ✅ **Compatibilidade**: Suporte a configurações legadas
 
 ## 🚀 Uso Básico
 
+### OpenTelemetry Collector
+
 ```typescript
-import { Logger } from '@yurisouza/sdk-logger';
+import { Logger } from '@psouza.yuri/sdk-logger';
 
 const logger = new Logger({
-  service: 'meu-servico',
-  version: '1.0.0',
-  environment: 'production',
-  signoz: {
-    endpoint: 'https://ingest.us.signoz.cloud:443',
-    apiKey: 'seu-api-key',
-    serviceName: 'meu-servico',
-    serviceVersion: '1.0.0',
-    environment: 'production'
-  }
+  exporterType: 'collector',
+  collector: {
+    endpoint: 'http://localhost:4318', // Endpoint do collector
+    protocol: 'http', // ou 'grpc'
+    timeout: 5000,
+    headers: {
+      'X-Custom-Header': 'value'
+    }
+  },
+  serviceName: 'meu-servico',
+  serviceVersion: '1.0.0',
+  environment: 'production'
 });
 
 logger.info('Aplicação iniciada');
 logger.error('Erro ocorreu', { error: 'Detalhes' });
 ```
 
+
 ## 🔧 Integração Automática com NestJS
 
-### 1. Configurar Variáveis de Ambiente
-
-```env
-SIGNOZ_ENDPOINT=https://ingest.us.signoz.cloud:443
-SIGNOZ_API_KEY=seu-api-key
-SIGNOZ_SERVICE_NAME=meu-servico
-SIGNOZ_SERVICE_VERSION=1.0.0
-SIGNOZ_ENVIRONMENT=production
-```
-
-### 2. Setup Automático (Recomendado)
+### Setup com OpenTelemetry Collector
 
 ```typescript
 // src/main.ts
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
-import { setupMinimalLogging } from '@yurisouza/sdk-logger';
+import { setupLogging } from '@psouza.yuri/sdk-logger';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   
-  // Setup automático - apenas uma linha!
-  setupMinimalLogging(app);
+  // Setup com Collector
+  setupLogging(app, {
+    exporterType: 'collector',
+    collector: {
+      endpoint: 'http://localhost:4318',
+      protocol: 'http',
+      timeout: 5000,
+      headers: {
+        'X-Custom-Header': 'value'
+      }
+    },
+    serviceName: 'meu-servico',
+    serviceVersion: '1.0.0',
+    environment: 'production'
+  });
   
   await app.listen(3000);
 }
 bootstrap();
 ```
 
-### 3. Setup com Configuração Personalizada
+
+## 🔧 Configuração do OpenTelemetry Collector
+
+Para usar o Collector, você precisa configurar um arquivo `collector.yaml`:
+
+```yaml
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+      grpc:
+        endpoint: 0.0.0.0:4317
+
+processors:
+  batch:
+    send_batch_size: 4096
+    timeout: 5s
+
+exporters:
+  # Debug (opcional)
+  debug:
+    verbosity: basic
+
+  # Envio para backend de observabilidade
+  otlphttp/backend:
+    endpoint: https://your-backend.com/v1/logs
+    headers:
+      authorization: Bearer ${API_KEY}
+    compression: gzip
+    timeout: 30s
+
+service:
+  pipelines:
+    logs:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlphttp/backend, debug]
+```
+
+### Docker Compose para Collector
+
+```yaml
+version: '3.8'
+services:
+  collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    command: ["--config=/etc/collector.yaml"]
+    volumes:
+      - ./collector.yaml:/etc/collector.yaml
+    ports:
+      - "4317:4317"   # gRPC
+      - "4318:4318"   # HTTP
+    environment:
+      - API_KEY=your-api-key-here
+```
+
+### Vantagens do Collector
+
+- ✅ **Processamento Local**: Reduz latência de rede
+- ✅ **Batching**: Agrupa logs para melhor performance
+- ✅ **Transformação**: Processa dados antes do envio
+- ✅ **Retry**: Reenvia logs em caso de falha
+- ✅ **Múltiplos Destinos**: Envia para vários sistemas
+- ✅ **Sampling**: Controla volume de dados
+
+## 🎛️ Controle de Nível Mínimo de Log
+
+A SDK permite controlar quais logs são processados através da configuração `minLogLevel`. Por padrão, o nível mínimo é `INFO`.
+
+### Níveis de Log Disponíveis
+
+- `DEBUG`: Todos os logs (mais verboso)
+- `INFO`: Logs informativos, avisos e erros (padrão)
+- `WARN`: Apenas avisos e erros
+- `ERROR`: Apenas erros (menos verboso)
+
+### Exemplo de Uso
+
+```typescript
+import { Logger, LogLevel } from '@psouza.yuri/sdk-logger';
+
+// Configuração com nível mínimo DEBUG (mostra todos os logs)
+const debugLogger = new Logger({
+  exporterType: 'collector',
+  collector: {
+    endpoint: 'http://localhost:4317'
+  },
+  serviceName: 'meu-servico',
+  minLogLevel: LogLevel.DEBUG, // Mostra DEBUG, INFO, WARN, ERROR
+  enableConsole: true
+});
+
+// Configuração com nível mínimo WARN (apenas avisos e erros)
+const warnLogger = new Logger({
+  exporterType: 'collector',
+  collector: {
+    endpoint: 'http://localhost:4317'
+  },
+  serviceName: 'meu-servico',
+  minLogLevel: LogLevel.WARN, // Mostra apenas WARN e ERROR
+  enableConsole: true
+});
+
+// Configuração sem minLogLevel (usa INFO como padrão)
+const defaultLogger = new Logger({
+  exporterType: 'collector',
+  collector: {
+    endpoint: 'http://localhost:4317'
+  },
+  serviceName: 'meu-servico',
+  // minLogLevel não especificado - usa INFO como padrão
+  enableConsole: true
+});
+
+// Testando os logs
+debugLogger.debug('Este log aparece com DEBUG'); // ✅ Aparece
+debugLogger.info('Este log aparece com DEBUG');  // ✅ Aparece
+
+warnLogger.debug('Este log NÃO aparece com WARN'); // ❌ Não aparece
+warnLogger.warn('Este log aparece com WARN');      // ✅ Aparece
+
+defaultLogger.debug('Este log NÃO aparece (padrão INFO)'); // ❌ Não aparece
+defaultLogger.info('Este log aparece (padrão INFO)');      // ✅ Aparece
+```
+
+### Configuração no NestJS
 
 ```typescript
 // src/main.ts
-import { NestFactory } from '@nestjs/core';
-import { AppModule } from './app.module';
-import { setupCompleteLogging } from '@yurisouza/sdk-logger';
+import { setupLogging } from '@psouza.yuri/sdk-logger';
+import { LogLevel } from '@psouza.yuri/sdk-logger';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   
-  // Setup com configuração personalizada
-  setupCompleteLogging(
-    app,
-    'meu-servico',
-    '1.0.0',
-    'production',
-    'https://ingest.us.signoz.cloud:443',
-    'seu-api-key'
-  );
+  setupLogging(app, {
+    exporterType: 'collector',
+    collector: {
+      endpoint: 'http://localhost:4317'
+    },
+    serviceName: 'meu-servico',
+    minLogLevel: LogLevel.WARN, // Apenas avisos e erros
+    enableConsole: true
+  });
   
   await app.listen(3000);
 }
-bootstrap();
 ```
 
 ## 🎨 Adicionando Contexto via Decorator
@@ -289,16 +423,14 @@ import { Logger } from '@psouza.yuri/sdk-logger';
 
 class PedidoService {
   private logger = new Logger({
-    service: 'pedido-service',
-    version: '1.0.0',
-    environment: 'production',
-    signoz: {
-      endpoint: process.env.SIGNOZ_ENDPOINT!,
-      apiKey: process.env.SIGNOZ_API_KEY!,
-      serviceName: 'pedido-service',
-      serviceVersion: '1.0.0',
-      environment: 'production'
-    }
+    exporterType: 'collector',
+    collector: {
+      endpoint: process.env.COLLECTOR_ENDPOINT || 'http://localhost:4318',
+      protocol: 'http'
+    },
+    serviceName: 'pedido-service',
+    serviceVersion: '1.0.0',
+    environment: 'production'
   });
 
   async processarPedido(pedido: Pedido) {

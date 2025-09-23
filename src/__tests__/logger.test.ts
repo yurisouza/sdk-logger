@@ -5,8 +5,7 @@ describe('Logger', () => {
 
   beforeEach(() => {
     logger = createLogger({
-      endpoint: 'https://test.signoz.cloud',
-      apiKey: 'test-api-key',
+      collectorEndpoint: 'http://localhost:4318',
       serviceName: 'test-service',
       serviceVersion: '1.0.0',
       environment: 'test'

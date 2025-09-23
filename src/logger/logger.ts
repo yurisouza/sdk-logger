@@ -1,12 +1,12 @@
 import winston, { format } from 'winston';
 import Transport from 'winston-transport';
-import { LogLevel, LoggerConfig } from '../types';
-import { SigNozExporter } from '../exporters/signoz-exporter';
+import { LogLevel, LoggerConfig, shouldLogLevel } from '../types';
+import { CollectorExporter } from '../exporters/collector-exporter';
 
-class SigNozWinstonTransport extends Transport {
-  private exporter: SigNozExporter;
+class CollectorWinstonTransport extends Transport {
+  private exporter: CollectorExporter;
 
-  constructor(exporter: SigNozExporter) {
+  constructor(exporter: CollectorExporter) {
     super();
     this.exporter = exporter;
   }
@@ -25,11 +25,10 @@ class SigNozWinstonTransport extends Transport {
 export class Logger {
   protected winston: winston.Logger;
   protected config: LoggerConfig;
-  private signozExporter: SigNozExporter;
+  private collectorExporter?: CollectorExporter;
 
   constructor(config: LoggerConfig) {
     this.config = config;
-    this.signozExporter = new SigNozExporter(config);
     this.winston = this.createWinstonLogger();
   }
 
@@ -50,8 +49,20 @@ export class Logger {
       );
     }
 
-    // SigNoz transport personalizado
-    transports.push(new SigNozWinstonTransport(this.signozExporter));
+    // Configurar exportador collector
+    if (this.config.collectorEndpoint) {
+      const collectorConfig = {
+        endpoint: this.config.collectorEndpoint,
+        protocol: this.config.collectorProtocol || 'http',
+        timeout: this.config.collectorTimeout || 5000,
+        headers: this.config.collectorHeaders || {}
+      };
+      
+      this.collectorExporter = new CollectorExporter(collectorConfig);
+      transports.push(new CollectorWinstonTransport(this.collectorExporter));
+    } else {
+      throw new Error('collectorEndpoint é obrigatório.');
+    }
 
     return winston.createLogger({
       level: this.config.logLevel || LogLevel.INFO,
@@ -93,6 +104,12 @@ export class Logger {
   }
 
   private log(level: LogLevel, message: string, context?: any): void {
+    // Verificar se o nível de log deve ser processado baseado no nível mínimo configurado
+    const minLevel = this.config.minLogLevel || LogLevel.INFO;
+    if (!shouldLogLevel(level, minLevel)) {
+      return; // Não processar logs abaixo do nível mínimo
+    }
+
     const logEntry = this.createLogEntry(level, message, context);
     this.winston.log(level, logEntry);
   }
@@ -115,6 +132,12 @@ export class Logger {
 
   // Método para logging com contexto de trace
   logWithTrace(level: LogLevel, message: string, traceContext?: any, additionalContext?: any): void {
+    // Verificar se o nível de log deve ser processado baseado no nível mínimo configurado
+    const minLevel = this.config.minLogLevel || LogLevel.INFO;
+    if (!shouldLogLevel(level, minLevel)) {
+      return; // Não processar logs abaixo do nível mínimo
+    }
+
     const context = {
       ...traceContext,
       ...additionalContext,

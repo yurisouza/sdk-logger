@@ -1,12 +1,12 @@
 import { LoggingInterceptor } from './logging.interceptor';
-import { SigNozConfig } from '../../types';
+import { LoggerConfig } from '../../types';
 
 /**
  * Configura o logging para aplicações NestJS
  * @param app - Instância da aplicação NestJS
- * @param config - Configuração do SigNoz
+ * @param config - Configuração do logger
  */
-export function setupLogging(app: any, config: SigNozConfig): void {
+export function setupLogging(app: any, config: LoggerConfig): void {
   try {
     // Validação básica do app
     if (!app || typeof app.useGlobalInterceptors !== 'function') {
@@ -23,7 +23,8 @@ export function setupLogging(app: any, config: SigNozConfig): void {
       return;
     }
 
-    if (!config.endpoint || typeof config.endpoint !== 'string') {
+    // Validação específica para collector
+    if (!config.collectorEndpoint) {
       return;
     }
 

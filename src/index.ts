@@ -1,7 +1,7 @@
 import { Logger } from './logger/logger';
-import { LogLevel, SigNozConfig, LoggerConfig, NestLoggingConfig } from './types';
+import { LogLevel, LogEntry, LoggerConfig, NestLoggingConfig, shouldLogLevel } from './types';
 
-export { Logger, LogLevel, SigNozConfig, LoggerConfig, NestLoggingConfig };
+export { Logger, LogLevel, LogEntry, LoggerConfig, NestLoggingConfig, shouldLogLevel };
 
 // NestJS adapter
 export { setupTelemetry, setupLogging } from './adapters/nestjs';

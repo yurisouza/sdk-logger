@@ -4,7 +4,9 @@ Este diretório contém uma suíte completa de testes para verificar a robustez 
 
 ## 📁 Arquivos de Teste
 
-### `test-load-stress.js`
+Os arquivos de teste estão localizados na pasta `test-files/`:
+
+### `test-files/test-load-stress.js`
 Testes de carga e stress para verificar performance:
 - **Carga Normal**: 100 requisições com 10 de concorrência
 - **Alta Carga**: 500 requisições com 50 de concorrência  
@@ -13,21 +15,21 @@ Testes de carga e stress para verificar performance:
 - **Dados Malformados**: Headers inválidos, body muito grande, etc.
 - **Concorrência Extrema**: 500 requisições simultâneas
 
-### `test-sdk-failures.js`
+### `test-files/test-sdk-failures.js`
 Testes de falhas específicas da SDK:
-- **Falha de Rede**: Simula endpoint inválido para SigNoz
+- **Falha de Rede**: Simula endpoint inválido para Collector
 - **Memory Leak**: Monitora vazamentos no SpanProcessor
 - **Dados Malformados**: Headers com caracteres especiais
 - **Concorrência Extrema**: 1000 requisições simultâneas
 - **Timeout de Exportação**: Simula timeout de 1ms
 
-### `test-monitor.js`
+### `test-files/test-monitor.js`
 Monitor de performance em tempo real:
 - **Dashboard Live**: Uso de memória, latência, throughput
 - **Estatísticas**: Taxa de sucesso, erros mais comuns
 - **Monitoramento**: Requisições por segundo, duração média
 
-### `test-runner.js`
+### `test-files/test-runner.js`
 Script principal para executar todos os testes:
 - **Modo Interativo**: Menu com opções
 - **Modo CLI**: Argumentos da linha de comando
@@ -52,38 +54,38 @@ npm run build
 
 #### Modo Interativo
 ```bash
-node test-runner.js
+node test-files/test-runner.js
 ```
 
 #### Modo CLI
 ```bash
 # Todos os testes
-node test-runner.js all
+node test-files/test-runner.js all
 
 # Teste específico
-node test-runner.js load      # Carga normal
-node test-runner.js stress    # Stress test
-node test-runner.js memory    # Teste de memória
-node test-runner.js failures  # Testes de falhas
-node test-runner.js monitor   # Monitor em tempo real
+node test-files/test-runner.js load      # Carga normal
+node test-files/test-runner.js stress    # Stress test
+node test-files/test-runner.js memory    # Teste de memória
+node test-files/test-runner.js failures  # Testes de falhas
+node test-files/test-runner.js monitor   # Monitor em tempo real
 ```
 
 #### Testes Individuais
 ```bash
 # Teste de carga
-node test-load-stress.js
+node test-files/test-load-stress.js
 
 # Teste de falhas
-node test-sdk-failures.js
+node test-files/test-sdk-failures.js
 
 # Monitor em tempo real
-node test-monitor.js
+node test-files/test-monitor.js
 ```
 
 ## 📊 O Que os Testes Verificam
 
 ### ✅ Robustez da SDK
-- **Falhas de Rede**: API continua funcionando mesmo com SigNoz offline
+- **Falhas de Rede**: API continua funcionando mesmo com Collector offline
 - **Dados Inválidos**: Headers malformados não quebram a aplicação
 - **Timeouts**: Exportação com timeout não impacta performance
 - **Memory Leaks**: SpanProcessor não vaza memória
@@ -122,7 +124,7 @@ node test-monitor.js
 - **Métrica**: Aumento de memória < 50MB
 
 ### 5. Falhas de Rede
-- **Objetivo**: Robustez com SigNoz offline
+- **Objetivo**: Robustez com Collector offline
 - **Configuração**: Endpoint inválido
 - **Métrica**: API continua funcionando
 
@@ -161,11 +163,11 @@ node test-monitor.js
 
 ### Variáveis de Ambiente
 ```bash
-# Timeout para SigNoz (opcional)
-export SIGNOZ_TIMEOUT=5000
+# Timeout para Collector (opcional)
+export COLLECTOR_TIMEOUT=5000
 
-# Endpoint do SigNoz (opcional)
-export SIGNOZ_ENDPOINT=https://ingest.us.signoz.cloud:443
+# Endpoint do Collector (opcional)
+export COLLECTOR_ENDPOINT=http://localhost:4318
 ```
 
 ### Personalizar Testes

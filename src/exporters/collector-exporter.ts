@@ -1,12 +1,23 @@
-import { LogEntry, SigNozConfig, LogLevel } from '../types';
+import { LogEntry, LogLevel } from '../types';
 import axios from 'axios';
 
-export class SigNozExporter {
-  private config: SigNozConfig;
+export interface CollectorConfig {
+  endpoint: string;
+  protocol?: 'http' | 'grpc';
+  timeout?: number;
+  headers?: Record<string, string>;
+}
+
+export class CollectorExporter {
+  private config: CollectorConfig;
   private maxLogSize: number;
 
-  constructor(config: SigNozConfig) {
-    this.config = config;
+  constructor(config: CollectorConfig) {
+    this.config = {
+      protocol: 'http',
+      timeout: 5000,
+      ...config
+    };
     this.maxLogSize = 1024 * 1024; // 1MB para logs
   }
 
@@ -56,7 +67,7 @@ export class SigNozExporter {
       // Verificar tamanho do log antes de processar
       const logSize = this.calculateDataSize(logEntry);
       if (logSize > this.maxLogSize) {
-        console.warn(`[SigNozExporter] Log muito grande (${logSize} bytes). Tamanho máximo: ${this.maxLogSize} bytes`);
+        console.warn(`[CollectorExporter] Log muito grande (${logSize} bytes). Tamanho máximo: ${this.maxLogSize} bytes`);
         
         // Truncar dados grandes
         const truncatedLog = this.truncateLargeData(logEntry, this.maxLogSize);
@@ -101,9 +112,9 @@ export class SigNozExporter {
         resourceLogs: [{
           resource: {
             attributes: [
-              { key: "service.name",            value: { stringValue: this.config.serviceName } },
-              { key: "service.version",         value: { stringValue: this.config.serviceVersion || "1.0.0" } },
-              { key: "deployment.environment",  value: { stringValue: this.config.environment || "production" } },
+              { key: "service.name",            value: { stringValue: (logEntry as any).service || "unknown" } },
+              { key: "service.version",         value: { stringValue: (logEntry as any).version || "1.0.0" } },
+              { key: "deployment.environment",  value: { stringValue: (logEntry as any).environment || "production" } },
             ]
           },
           scopeLogs: [{
@@ -122,17 +133,19 @@ export class SigNozExporter {
         }]
       };
 
-      // Enviar para SigNoz
+      // Enviar para Collector
       const headers: Record<string, string> = {
         'Content-Type': 'application/json',
+        ...this.config.headers
       };
-      if (this.config.apiKey) {
-        headers['signoz-ingestion-key'] = this.config.apiKey;
-      }
 
-      await axios.post(`${this.config.endpoint}/v1/logs`, payload, {
+      const endpoint = this.config.protocol === 'grpc' 
+        ? `${this.config.endpoint}/v1/logs` 
+        : `${this.config.endpoint}/v1/logs`;
+
+      await axios.post(endpoint, payload, {
         headers,
-        timeout: 5000, // 5 segundos de timeout
+        timeout: this.config.timeout,
       });
 
     } catch (error) {
@@ -143,10 +156,9 @@ export class SigNozExporter {
   private buildAttributes(logEntry: LogEntry, durationMs?: number): any[] {
     const attrs: any[] = [];
 
-    // Deriva duration em ms de várias fontes: argumento, performance.duration, logEntry.duration e até do message "(10ms)"
+    // Deriva duration em ms de várias fontes
     let effectiveDurationMs: number | undefined = durationMs;
 
-    // 1) performance.duration (string como "10ms" ou "0.5s")
     if (effectiveDurationMs === undefined) {
       const perfDur = (logEntry as any)?.performance?.duration;
       const parsed = this.parseDurationMs(perfDur);
@@ -155,7 +167,6 @@ export class SigNozExporter {
       }
     }
 
-    // 2) logEntry.duration|durationMs (qualquer formato)
     if (effectiveDurationMs === undefined) {
       const topDur = (logEntry as any)?.durationMs ?? (logEntry as any)?.duration;
       const parsed = this.parseDurationMs(topDur);
@@ -164,7 +175,6 @@ export class SigNozExporter {
       }
     }
 
-    // 3) message no formato "(10ms)" ou "(0.5s)"
     if (effectiveDurationMs === undefined && typeof (logEntry as any)?.message === 'string') {
       const msg = (logEntry as any).message.toLowerCase();
       const m = msg.match(/\((\d+(?:\.\d+)?)\s*(ms|s|us)\)/i);
@@ -179,7 +189,7 @@ export class SigNozExporter {
       }
     }
 
-    // Correlações (apenas como attributes se não existirem no topo — mas em geral, não duplicamos)
+    // Correlações
     const hasTopTrace = Boolean((logEntry as any).traceId || (logEntry as any).trace_id);
     const hasTopSpan  = Boolean((logEntry as any).spanId  || (logEntry as any).span_id);
 
@@ -190,19 +200,18 @@ export class SigNozExporter {
       attrs.push({ key: 'span.id', value: { stringValue: (logEntry as any).spanId } });
     }
 
-    // Canonical request id
+    // Request ID
     const requestId = (logEntry as any).requestId ?? (logEntry as any).request_id;
     if (requestId) attrs.push({ key: 'request.id', value: { stringValue: String(requestId) } });
 
     if ((logEntry as any).correlationId) attrs.push({ key: 'correlation.id', value: { stringValue: (logEntry as any).correlationId } });
     if ((logEntry as any).userId)        attrs.push({ key: 'user.id', value: { stringValue: (logEntry as any).userId } });
 
-    // HTTP básicos - COM DEBUG
+    // HTTP básicos
     const method = (logEntry as any)?.context?.request?.method;
     const urlPath = (logEntry as any)?.context?.request?.url;
     const statusCode = (logEntry as any)?.context?.response?.statusCode;
     const respSize = (logEntry as any)?.context?.response?.responseSize;
-
 
     if (method) attrs.push({ key: 'http.method', value: { stringValue: String(method) } });
     if (urlPath) attrs.push({ key: 'url.path', value: { stringValue: String(urlPath) } });
@@ -219,20 +228,17 @@ export class SigNozExporter {
     if (userAgent) attrs.push({ key: 'user.agent', value: { stringValue: String(userAgent) } });
     if (ip) attrs.push({ key: 'client.ip', value: { stringValue: String(ip) } });
 
-    // Message pinável
+    // Message
     if ((logEntry as any).message) {
       attrs.push({ key: 'message', value: { stringValue: String((logEntry as any).message) } });
     }
 
-    // Somente primitivos/arrays de primitivos do context viram attributes
-    // Excluir traceId e spanId para evitar duplicação (já estão no topo do logRecord)
+    // Context primitivos
     const excludedFields = ['traceId', 'spanId', 'trace_id', 'span_id'];
     if ((logEntry as any).context && typeof (logEntry as any).context === 'object') {
       for (const [k, v] of Object.entries((logEntry as any).context)) {
         if (!excludedFields.includes(k) && this.isPrimitiveOrArrayOfPrimitives(v)) {
-          // normaliza chaves duplicadas que chegam como snake_case
           let key = k === 'request_id' ? 'request.id' : k;
-          // Renomear date para date_utc
           if (k === 'date') key = 'date_utc';
           attrs.push({ key, value: this.toAnyValue(v) });
         }
@@ -269,7 +275,7 @@ export class SigNozExporter {
     if ((logEntry as any).request) obj.request = (logEntry as any).request;
     if ((logEntry as any).response) obj.response = (logEntry as any).response;
 
-    // Move para body.context apenas o que NÃO é primitivo/array de primitivos
+    // Context complexo
     if ((logEntry as any).context && typeof (logEntry as any).context === 'object') {
       const complex: Record<string, any> = {};
       for (const [k, v] of Object.entries((logEntry as any).context)) {
@@ -282,13 +288,11 @@ export class SigNozExporter {
 
     if ((logEntry as any).error) obj.error = (logEntry as any).error;
 
-    // Garantia: não manter 'duration' string no body
     if ('duration' in obj) delete (obj as any).duration;
 
     return obj;
   }
 
-  // Helper para converter valores para AnyValue
   private toAnyValue(v: any): any {
     if (v === null || v === undefined) return { stringValue: "" }
 
@@ -302,7 +306,6 @@ export class SigNozExporter {
             arrayValue: { values: v.map((item: any) => this.toAnyValue(item)) }
           }
         }
-        // objeto plano -> kvlistValue
         return {
           kvlistValue: {
             values: Object.entries(v).map(([k, val]) => ({ key: k, value: this.toAnyValue(val) }))
