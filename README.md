@@ -19,6 +19,77 @@ npm install @psouza.yuri/sdk-logger
 - ✅ **Nível Mínimo de Log**: Controle granular de quais logs são processados
 - ✅ **Compatibilidade**: Suporte a configurações legadas
 
+## ⏱️ Entendendo Duration e Timing
+
+### 📊 Conceitos de Duration
+
+A SDK captura diferentes tipos de duration dependendo do contexto:
+
+#### **1. Duration do Logger (Recomendado)**
+- **O que mede**: Tempo de processamento da API (span principal)
+- **Exemplo**: `8.54ms` para um POST /api/v1/todos
+- **Inclui**: Lógica de negócio, validações, processamento
+- **Não inclui**: Operações de banco de dados, chamadas externas, middleware
+
+#### **2. Duration do Trace Completo**
+- **O que mede**: Tempo total de todas as operações
+- **Exemplo**: `69ms` para o mesmo POST
+- **Inclui**: 
+  - Span principal (8.54ms)
+  - Operações de banco de dados (48.73ms)
+  - Conexões de rede (8.18ms)
+  - Middleware (0.5ms)
+
+#### **3. Duration do Postman/Cliente**
+- **O que mede**: Tempo de rede (request → response)
+- **Exemplo**: `42ms` para o mesmo POST
+- **Inclui**: Latência de rede + processamento total
+
+### 🎯 Por que Diferentes Durations?
+
+```
+Cliente (Postman): 42ms
+    ↓ (rede)
+API recebe request
+    ↓
+Trace inicia: 17.08ms (middleware + handler)
+    ├── Middleware: 0.5ms
+    ├── Request Handler: 8.54ms ← LOGGER DURATION
+    ├── POST interno (DB): 48.73ms
+    └── tcp.connect: 8.18ms
+    ↓
+Trace total: 69ms
+    ↓ (rede)
+Cliente recebe response: 42ms
+```
+
+### ✅ Qual Duration Usar?
+
+| Contexto | Duration Recomendado | Por quê? |
+|----------|---------------------|----------|
+| **Logs da API** | Logger (8.54ms) | Tempo real de processamento da API |
+| **Monitoramento** | Trace completo (69ms) | Visão completa de performance |
+| **Cliente** | Postman (42ms) | Experiência do usuário final |
+
+### 🔧 Implementação Técnica
+
+A SDK usa **precisão de nanosegundos** do OpenTelemetry:
+
+```typescript
+// Cálculo preciso usando timestamps do OpenTelemetry
+const startNs = start[0] * 1e9 + start[1];  // seconds * 1e9 + nanoseconds
+const endNs = end[0] * 1e9 + end[1];        // seconds * 1e9 + nanoseconds
+const durationNs = endNs - startNs;         // diferença em nanosegundos
+const durationMs = durationNs / 1e6;        // converter para milissegundos
+```
+
+### 📈 Benefícios
+
+- **Precisão máxima**: Nanosegundos de precisão
+- **Consistência**: Duration do log = Duration do span
+- **Performance**: Evita cálculos duplicados
+- **Confiabilidade**: Usa fonte oficial do OpenTelemetry
+
 ## 🚀 Uso Básico
 
 ### OpenTelemetry Collector
@@ -510,9 +581,56 @@ tracer.startSpan('gerar-relatorio')
 
 Agora todos os requests e responses da sua API serão automaticamente logados e rastreados no SigNoz Cloud!
 
+## 🔧 Troubleshooting de Duration
+
+### ❓ "Por que o duration do log é diferente do Postman?"
+
+**Resposta**: São medições diferentes!
+
+- **Logger (8.54ms)**: Tempo de processamento da API
+- **Postman (42ms)**: Tempo total incluindo rede
+- **Trace (69ms)**: Tempo de todas as operações internas
+
+### ❓ "O duration do log está correto?"
+
+**Resposta**: Sim! O logger mede o **span principal** da API, que é exatamente o que você quer para logs de aplicação.
+
+### ❓ "Como validar se está funcionando?"
+
+```bash
+# 1. Fazer uma requisição
+curl -X POST http://localhost:3000/api/v1/todos \
+  -H "Content-Type: application/json" \
+  -d '{"title":"Teste","description":"Teste"}'
+
+# 2. Verificar logs no console (se habilitado)
+# 3. Verificar traces no SigNoz
+# 4. Comparar durations:
+#    - Log: ~8ms (processamento da API)
+#    - Trace: ~69ms (todas as operações)
+#    - Postman: ~42ms (rede + processamento)
+```
+
+### ❓ "Duration muito alto no log?"
+
+**Possíveis causas**:
+- Lógica de negócio complexa
+- Validações pesadas
+- Processamento de dados
+- **NÃO é problema da SDK** - é característica da sua API
+
+### ❓ "Duration muito baixo no log?"
+
+**Possíveis causas**:
+- API muito simples
+- Cache ativo
+- Processamento mínimo
+- **NÃO é problema da SDK** - sua API é eficiente!
+
 ## 📚 Documentação
 
 - **[🔧 Guia de Implementação](IMPLEMENTATION.md)** - Documentação completa
+- **[⏱️ Guia de Duration](DURATION_GUIDE.md)** - Entendendo timing e duration
 - **[📖 Exemplos de Uso](src/examples/)** - Exemplos práticos
 
 ## 🔍 O que será capturado automaticamente:

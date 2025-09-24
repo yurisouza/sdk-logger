@@ -25,27 +25,27 @@ processors:
       - key: "http.url"
         action: "delete"       # Remove URL completa (reduz tamanho)
 
-  # Processadores de batch otimizados por tipo de dados
+  # Processadores de batch otimizados para evitar perda de dados
   batch/logs:
-    send_batch_size: 1024      # Menor para logs (mais rápido)
-    timeout: 1s                # Timeout menor para logs
-    send_batch_max_size: 2048  # Tamanho máximo do batch
+    send_batch_size: 100       # Muito menor para envio mais frequente
+    timeout: 500ms             # Timeout muito menor para logs
+    send_batch_max_size: 500   # Tamanho máximo menor
     metadata_keys: []          # Sem metadados extras
 
   batch/traces:
-    send_batch_size: 512       # Menor para traces
-    timeout: 2s                # Timeout médio para traces
-    send_batch_max_size: 1024
+    send_batch_size: 50        # Muito menor para traces
+    timeout: 1s                # Timeout menor para traces
+    send_batch_max_size: 200
 
   batch/metrics:
-    send_batch_size: 2048      # Maior para métricas (menos frequentes)
-    timeout: 5s                # Timeout maior para métricas
-    send_batch_max_size: 4096
+    send_batch_size: 200       # Menor para métricas
+    timeout: 2s                # Timeout menor para métricas
+    send_batch_max_size: 500
 
 exporters:
   # Debug apenas para desenvolvimento
   debug:
-    verbosity: basic
+    verbosity: detailed
 
   # SigNoz Cloud otimizado - usando variáveis de ambiente
   otlphttp/signoz:
@@ -53,20 +53,23 @@ exporters:
     headers:
       signoz-ingestion-key: ${SIGNOZ_INGESTION_KEY}
     compression: gzip
-    timeout: 10s               # Timeout menor para falhas mais rápidas
+    timeout: 30s               # Timeout maior para evitar falhas
     retry_on_failure:
       enabled: true
-      initial_interval: 1s     # Intervalo inicial menor
-      max_interval: 5s         # Intervalo máximo menor
-      max_elapsed_time: 30s    # Tempo máximo menor
+      initial_interval: 500ms  # Intervalo inicial muito menor
+      max_interval: 10s        # Intervalo máximo maior
+      max_elapsed_time: 300s   # Tempo máximo muito maior (5 min)
     sending_queue:
       enabled: true
-      num_consumers: 4         # Mais consumidores para paralelização
-      queue_size: 1000         # Fila menor para evitar acúmulo
+      num_consumers: 8         # Mais consumidores para paralelização
+      queue_size: 5000         # Fila maior para evitar perda de dados
 
 extensions:
   pprof:
   zpages:
+  # Health check extension para monitoramento
+  health_check:
+    endpoint: 0.0.0.0:13133
 
 service:
   telemetry:
@@ -74,7 +77,7 @@ service:
       level: warn              # Menos logs = mais performance
 
   # Extensões para monitoramento
-  extensions: [pprof, zpages]
+  extensions: [pprof, zpages, health_check]
 
   pipelines:
     # Pipeline de logs otimizado

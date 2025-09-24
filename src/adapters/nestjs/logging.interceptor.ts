@@ -29,8 +29,12 @@ export class LoggingInterceptor implements NestInterceptor {
 
   intercept(context: ExecutionContext, next: CallHandler): Observable<any> {
     try {
+      // Debug: verificar se o interceptor está sendo executado
+      console.log('🔍 LoggingInterceptor: Interceptando request');
+      
       // Validação básica do context
       if (!context || !context.switchToHttp) {
+        console.log('❌ LoggingInterceptor: Context inválido');
         return next.handle();
       }
 
@@ -112,33 +116,38 @@ export class LoggingInterceptor implements NestInterceptor {
     
     return next.handle().pipe(
       tap((data) => {
-        // Logging assíncrono - não bloqueia a resposta
-        setImmediate(() => {
+        // Logging assíncrono - aguardar um pouco para o SpanDurationTracker processar
+        setTimeout(() => {
           try {
-            // Tentar obter duração do span ativo primeiro
+            // Obter duração EXATA do span do OpenTelemetry
             let duration: number | undefined;
             
             try {
               const activeSpan = trace.getActiveSpan();
               if (activeSpan) {
                 const spanContext = activeSpan.spanContext();
-                // Buscar duração do span ativo no Map
+                // Buscar duração do span ativo no Map (capturada pelo SpanDurationTracker)
                 duration = getSpanDuration(spanContext.spanId);
               }
             } catch (spanError) {
               // Ignorar erro de span
             }
 
-            // Se não encontrou duração do span ativo, buscar no Map
+            // Se não encontrou duração do span ativo, buscar no Map por spanId
+            if (duration === undefined && spanId) {
+              duration = getSpanDuration(spanId);
+            }
+
+            // Se ainda não encontrou, buscar o span com maior duração (provavelmente o principal)
             if (duration === undefined) {
-              // Procurar o span HTTP principal no Map
-              for (const [spanId, spanDuration] of spanDurations.entries()) {
-                if (spanId && spanDuration !== undefined) {
-                  // Usar o span com maior duração que provavelmente é o principal
-                  if (duration === undefined || spanDuration > duration) {
-                    duration = spanDuration;
-                  }
+              let maxDuration = 0;
+              for (const [currentSpanId, spanDuration] of spanDurations.entries()) {
+                if (currentSpanId && spanDuration !== undefined && spanDuration > maxDuration) {
+                  maxDuration = spanDuration;
                 }
+              }
+              if (maxDuration > 0) {
+                duration = maxDuration;
               }
             }
 
@@ -151,62 +160,67 @@ export class LoggingInterceptor implements NestInterceptor {
             const statusCode = response?.statusCode || 200;
             
             // Log estruturado no padrão de produção
-            this.logger.info(`${method} ${url} (${duration}ms)`, {
-            request: {
-              method,
-              url,
-              userAgent,
-              ip,
-              requestId,
-              userId,
-              body: this.sanitizeBody(body),
-              headers: this.sanitizeHeaders(headers),
-            },
-            response: {
-              statusCode,
-              body: this.sanitizeBody(data),
-              responseSize: this.calculateResponseSize(data),
-              headers: this.safeGetResponseHeaders(response),
-            },
-            performance: {
-              durationMs: duration,
-            },
-            traceId,
-            spanId,
-          });
+            this.logger.info(`${method} ${url} (${duration.toFixed(2)}ms)`, {
+              request: {
+                method,
+                url,
+                userAgent,
+                ip,
+                requestId,
+                userId,
+                body: this.sanitizeBody(body),
+                headers: this.sanitizeHeaders(headers),
+              },
+              response: {
+                statusCode,
+                body: this.sanitizeBody(data),
+                responseSize: this.calculateResponseSize(data),
+                headers: this.safeGetResponseHeaders(response),
+              },
+              performance: {
+                durationMs: duration,
+              },
+              traceId,
+              spanId,
+            });
           } catch (logError) {
             // Erro silencioso - não quebra a aplicação
           }
         });
       }),
       catchError((error) => {
-        // Logging assíncrono - não bloqueia a resposta
-        setImmediate(() => {
+        // Logging assíncrono - aguardar um pouco para o SpanDurationTracker processar
+        setTimeout(() => {
           try {
-            // Tentar obter duração do span ativo primeiro
+            // Obter duração EXATA do span do OpenTelemetry
             let duration: number | undefined;
             
             try {
               const activeSpan = trace.getActiveSpan();
               if (activeSpan) {
                 const spanContext = activeSpan.spanContext();
-                // Buscar duração do span ativo no Map
+                // Buscar duração do span ativo no Map (capturada pelo SpanDurationTracker)
                 duration = getSpanDuration(spanContext.spanId);
               }
             } catch (spanError) {
               // Ignorar erro de span
             }
 
-            // Se não encontrou duração do span ativo, buscar no Map
+            // Se não encontrou duração do span ativo, buscar no Map por spanId
+            if (duration === undefined && spanId) {
+              duration = getSpanDuration(spanId);
+            }
+
+            // Se ainda não encontrou, buscar o span com maior duração (provavelmente o principal)
             if (duration === undefined) {
-              // Procurar o span HTTP principal no Map
-              for (const [spanId, spanDuration] of spanDurations.entries()) {
-                if (spanId && spanDuration !== undefined) {
-                  // Usar o span com maior duração que provavelmente é o principal
-                  if (duration === undefined || spanDuration > duration) {
-                    duration = spanDuration;
-                  }
+              let maxDuration = 0;
+              for (const [currentSpanId, spanDuration] of spanDurations.entries()) {
+                if (currentSpanId && spanDuration !== undefined && spanDuration > maxDuration) {
+                  maxDuration = spanDuration;
                 }
+              }
+              if (maxDuration > 0) {
+                duration = maxDuration;
               }
             }
 
@@ -218,34 +232,34 @@ export class LoggingInterceptor implements NestInterceptor {
             
             const statusCode = error?.status || 500;
           
-          // Log estruturado no padrão de produção
-          this.logger.error(`${method} ${url} (${duration}ms)`, {
-            request: {
-              method,
-              url,
-              userAgent,
-              ip,
-              requestId,
-              userId,
-              body: this.sanitizeBody(body),
-              headers: this.sanitizeHeaders(headers),
-            },
-            error: {
-              message: error?.message || 'Unknown error',
-              stack: error?.stack || '',
-              statusCode,
-            },
-            performance: {
-              durationMs: duration,
-            },
-            traceId,
-            spanId,
-          });
+            // Log estruturado no padrão de produção
+            this.logger.error(`${method} ${url} (${duration.toFixed(2)}ms)`, {
+              request: {
+                method,
+                url,
+                userAgent,
+                ip,
+                requestId,
+                userId,
+                body: this.sanitizeBody(body),
+                headers: this.sanitizeHeaders(headers),
+              },
+              error: {
+                message: error?.message || 'Unknown error',
+                stack: error?.stack || '',
+                statusCode,
+              },
+              performance: {
+                durationMs: duration,
+              },
+              traceId,
+              spanId,
+            });
           } catch (logError) {
             // Erro silencioso - não quebra a aplicação
           }
         });
-        
+
         throw error;
       })
     );

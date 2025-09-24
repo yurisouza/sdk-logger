@@ -19,7 +19,11 @@ export class SpanDurationTracker implements SpanProcessor {
       const end = span.endTime;     // [seconds, nanos]
       
       if (start && end) {
-        const durationNs = (end[0] - start[0]) * 1e9 + (end[1] - start[1]);
+        // Calcular duração usando precisão de nanosegundos do OpenTelemetry
+        // startTime e endTime são tuplas [seconds, nanoseconds]
+        const startNs = start[0] * 1e9 + start[1];
+        const endNs = end[0] * 1e9 + end[1];
+        const durationNs = endNs - startNs;
         const durationMs = durationNs / 1e6;
         
         // Armazenar duração usando spanId como chave
